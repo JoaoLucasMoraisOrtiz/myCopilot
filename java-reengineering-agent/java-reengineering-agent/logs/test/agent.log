@@ -1,0 +1,10 @@
+2025-07-02 15:52:31 | INFO     | utils.logger:info:214 | Sistema de logging funcionando!
+2025-07-02 15:52:31 | INFO     | utils.logger:analysis:230 | Teste de análise
+2025-07-02 15:52:31 | INFO     | utils.logger:generation:234 | Teste de geração
+2025-07-02 15:52:31 | INFO     | utils.logger:wrapper:300 | Starting test_function
+2025-07-02 15:52:31 | INFO     | utils.logger:wrapper:312 | Completed test_function in 0.00s
+2025-07-02 15:53:56 | INFO     | utils.logger:info:186 | Sistema de logging funcionando!
+2025-07-02 15:53:56 | INFO     | utils.logger:analysis:202 | Teste de análise
+2025-07-02 15:53:56 | INFO     | utils.logger:generation:206 | Teste de geração
+2025-07-02 15:53:56 | INFO     | utils.logger:wrapper:272 | Starting test_function
+2025-07-02 15:53:56 | INFO     | utils.logger:wrapper:284 | Completed test_function in 0.00s
