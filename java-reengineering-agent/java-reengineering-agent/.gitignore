@@ -1,0 +1,19 @@
+# Python específico do agente
+__pycache__/
+*.py[cod]
+*.class
+venv/
+.env
+
+# Data do agente
+knowledge_base/*.db
+logs/*.log
+workspace/legacy-system/*
+workspace/analysis-results/*
+output/*
+
+# Manter estrutura de diretórios
+!workspace/.gitkeep
+!knowledge_base/.gitkeep
+!logs/.gitkeep
+!output/.gitkeep
