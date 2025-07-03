@@ -488,11 +488,11 @@ Relacionado à arquitetura em architecture-diagram.md"
 - [X] Setup completo do agente no repositório myCopilot
 - [X] Configurar logging com loguru
 - [X] Criar CLI básico com click/typer
-- [ ] Estrutura de testes unitários
-- [ ] Commit: "feat: base structure + CLI setup"
+- [X] Estrutura de testes unitários
+- [X] Commit: "feat: base structure + CLI setup"
 
 #### **Dia 2: RAG Foundation**
-- [ ] Implementar CodeBERT encoder básico
+- [X] Implementar CodeBERT encoder básico
 - [ ] Criar SQLite vector store
 - [ ] Sistema de chunking simples
 - [ ] Testes de embedding
