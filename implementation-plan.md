@@ -487,7 +487,7 @@ Relacionado à arquitetura em architecture-diagram.md"
 #### **Dia 1: Base Structure**
 - [X] Setup completo do agente no repositório myCopilot
 - [X] Configurar logging com loguru
-- [ ] Criar CLI básico com click/typer
+- [X] Criar CLI básico com click/typer
 - [ ] Estrutura de testes unitários
 - [ ] Commit: "feat: base structure + CLI setup"
 

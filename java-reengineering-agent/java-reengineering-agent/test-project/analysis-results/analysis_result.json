@@ -1,0 +1,16 @@
+{
+  "analysis_summary": {
+    "total_files": 45,
+    "java_files": 38,
+    "god_classes": 3,
+    "code_smells": 127,
+    "cyclomatic_complexity_avg": 8.3,
+    "technical_debt_hours": 240
+  },
+  "recommendations": [
+    "Break down UserService class (God Class detected)",
+    "Extract interface for PaymentProcessor",
+    "Implement repository pattern for data access",
+    "Add proper exception handling in OrderManager"
+  ]
+}

@@ -1,0 +1,26 @@
+# Java Reengineering Agent Configuration
+
+# Project Information
+project_name = "My Legacy Reengineering Project"
+project_description = "Legacy Java system reengineering"
+
+# Paths
+legacy_system_path = "./legacy-system"
+output_path = "./new-system"
+analysis_path = "./analysis-results"
+
+# Analysis Settings
+target_java_version = "17"
+target_spring_boot_version = "3.2"
+enable_ddd_decomposition = true
+detect_god_classes = true
+detect_anti_patterns = true
+
+# AI Integration
+use_amazon_q = true
+max_context_tokens = 4000
+enable_rag = true
+
+# Logging
+log_level = "INFO"
+log_to_file = true

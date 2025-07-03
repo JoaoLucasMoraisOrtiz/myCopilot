@@ -20,11 +20,13 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 try:
     from utils.logger import setup_logging, get_logger, cleanup_logging
+    from cli.interactive_mode import run_interactive_mode
 except ImportError:
     print("⚠️  Aviso: Sistema de logging não disponível")
     setup_logging = None
     get_logger = None
     cleanup_logging = None
+    run_interactive_mode = None
 
 # Configurar console rico
 console = Console()
@@ -466,6 +468,17 @@ use_amazon_q = {str(use_amazon_q).lower()}
     config_file.write_text(config)
     
     console.print(f"✅ Configuration saved to: [bold]{config_file}[/bold]")
+
+
+@app.command()
+def interactive():
+    """🎯 Interactive mode - guided reengineering process"""
+    
+    if run_interactive_mode:
+        run_interactive_mode()
+    else:
+        console.print("❌ Interactive mode not available")
+        console.print("📦 Make sure all dependencies are installed")
 
 
 if __name__ == "__main__":
