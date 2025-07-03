@@ -493,7 +493,7 @@ Relacionado à arquitetura em architecture-diagram.md"
 
 #### **Dia 2: RAG Foundation**
 - [X] Implementar CodeBERT encoder básico
-- [ ] Criar SQLite vector store
+- [X] Criar SQLite vector store
 - [ ] Sistema de chunking simples
 - [ ] Testes de embedding
 - [ ] Commit: "feat: RAG foundation with CodeBERT + SQLite"
