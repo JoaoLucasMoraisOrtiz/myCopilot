@@ -114,6 +114,16 @@ def find_first_element(client, tag_name):
         return elements[0]
     return None, None
 
+def find_last_element(client, tag_name):
+    """
+    Encontra o primeiro elemento com a tag_name especificada.
+    Retorna (node_id, frame_id) ou (None, None).
+    """
+    elements = find_elements_in_frames(client, tag_name)
+    if elements:
+        return elements[-1]
+    return None, None
+
 def find_element_by_selector(client, selector):
     """
     Encontra o primeiro elemento que corresponde ao seletor CSS, 

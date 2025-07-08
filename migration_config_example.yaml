@@ -1,0 +1,76 @@
+# Exemplo de Configuração de Migração
+# Copie este arquivo e adapte para seu projeto
+
+migration_config:
+  # === INFORMAÇÕES BÁSICAS ===
+  project_name: "LdapWs"
+  current_version: "v1.0.0"
+  migration_objective: "Modernizar sistema legado Java 6 para Java 11 com WildFly e APIs SOAP"
+  
+  # === TECNOLOGIAS ATUAIS ===
+  current_stack:
+    language: "Java"
+    version: "6"
+    framework: "Java EE 6"
+    server: "JBoss 5.1"
+    database:
+      type: "Postgres"
+      version: "16"
+    frontend: "none"
+    build_tool: "Ant"
+    
+  # === TECNOLOGIAS DE DESTINO ===
+  target_stack:
+    language: "Java"
+    version: "11"
+    framework: "Jakarta EE 9"
+    server: "WildFly 32"
+    database:
+      type: "PostgreSQL" 
+      version: "16"
+    frontend: "none"
+    build_tool: "Maven"
+    
+  # === ARQUITETURA ALVO ===
+  target_architecture:
+    type: "DDD"  # microservices, monolith, modular_monolith
+    api_style: "SOAP"      # REST, SOAP, GraphQL
+    messaging: "none"  # RabbitMQ, Kafka, ActiveMQ, none
+    cache: "none"         # Redis, Hazelcast, none
+    
+  # === INFRAESTRUTURA ===
+  infrastructure:
+    deployment: "EC2"    # Kubernetes, Docker, Traditional
+    cloud_provider: "AWS"       # AWS, Azure, GCP, OnPremise
+    database_strategy: "none"  # migration, rewrite, hybrid
+    
+  # === PREFERÊNCIAS DE MIGRAÇÃO ===
+  migration_preferences:
+    strategy: "none"   # strangler_fig, big_bang, parallel_run, phased
+    data_migration: "none"  # incremental, bulk, realtime_sync
+    testing_approach: "none"  # automated, manual, hybrid
+    rollback_strategy: "none"  # blue_green, canary, feature_flags
+    
+  # === RESTRIÇÕES E REQUISITOS ===
+  constraints:
+    max_downtime: "4 hours"
+    budget_limit: "500k USD"
+    timeline: "12 months"
+    team_size: 8
+    compliance_requirements:
+      - "ISO27001"
+      
+  # === PRIORIDADES DE NEGÓCIO ===
+  business_priorities:
+    - "performance_improvement"
+    - "maintainability"
+    - "scalability"
+    - "cost_reduction"
+    - "security_enhancement"
+    
+  # === COMPONENTES CRÍTICOS ===
+  critical_components:
+    - name: "Conexão com o SISE por meio de um .JAR"
+      description: "O sistema faz uso de um JAR para se conectar ao SISE, que é um sistema de autenticação, e essa parte é crítica para a operação"
+      technology: "Java 6 + JAR do SISE compilado"
+      criticality: "high"

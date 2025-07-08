@@ -50,3 +50,49 @@ def monitor_chat_response(client, chat_container_xpath, timeout_seconds=30, poll
 
     print("\n--- Monitoramento concluído (timeout geral) ---")
     return last_text
+
+def stream_chat_response(client, selector):
+    """
+    Faz polling a cada segundo sobre o último elemento que contenha `selector`,
+    capturando apenas as novas partes até não haver mais mudanças.
+    """
+    prev_text = ""
+    has_update = False
+
+    while True:
+        # obtém aria-label do último elemento que casa com o seletor
+        expression = f"""
+            (() => {{
+                const elems = document.querySelectorAll('{selector}');
+                return elems && elems.length
+                    ? elems[elems.length - 2].getAttribute('aria-label')
+                    : '';
+            }})()
+        """
+        resp = client.send('Runtime.evaluate', {
+            'expression': expression,
+            'returnByValue': True,
+            'awaitPromise': True
+        })
+
+        
+
+        # extrai valor retornado
+        current = resp.get('result', {}) \
+                      .get('result', {}) \
+                      .get('value', '') or ''
+
+        if current != prev_text:
+            # imprime somente a diferença
+            diff = current[len(prev_text):]
+            print(diff, end='', flush=True)
+            prev_text = current
+            has_update = True
+        else:
+            # se já houve atualização antes e agora parou de mudar, fim da mensagem
+            if has_update:
+                break
+
+        time.sleep(1)
+
+    print()  # pular linha após fim do streaming

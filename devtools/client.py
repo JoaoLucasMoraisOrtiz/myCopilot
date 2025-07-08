@@ -1,4 +1,5 @@
 import json
+import time
 import websocket
 
 class DevToolsClient:
@@ -23,6 +24,7 @@ class DevToolsClient:
         })
         self.ws.send(message)
 
+        time.sleep(1)
         while True:
             raw = self.ws.recv()
             try:

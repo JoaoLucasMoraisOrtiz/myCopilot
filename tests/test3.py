@@ -1,13 +1,18 @@
+# To run on linux, use:
+# google-chrome --remote-debugging-port=9222 --user-data-dir=/tmp/chrome-debug --remote-allow-origins=*
+# then run this script.
 
 import json
 from urllib.request import urlopen
 import time
 
+from anyio import sleep
+
 from devtools.client import DevToolsClient
-from devtools.dom import get_box_model, enable_dom, find_first_element, find_element_by_selector
+from devtools.dom import get_box_model, enable_dom, find_last_element, find_element_by_selector
 from devtools.page import enable_page
 from devtools.input import enable_input, click, insert_text
-from devtools.chat import monitor_chat_response
+from devtools.chat import stream_chat_response
 
 def get_debug_url(filter_url: str = None):
     """Busca o URL de depuração de uma aba que corresponda a filter_url."""
@@ -30,7 +35,8 @@ def main():
     TARGET_URL = 'https://vscode.dev'
     TEXT_TO_TYPE = "Crie uma API em Python usando Flask que tenha um endpoint /hello e retorne 'Olá, Mundo!'. Retorne apenas o código."
     SEND_BUTTON_SELECTOR = '#workbench\\.panel\\.chat > div > div > div.monaco-scrollable-element > div.split-view-container > div > div > div.pane-body > div.interactive-session > div.interactive-input-part > div.interactive-input-and-side-toolbar > div > div.chat-input-toolbars > div.monaco-toolbar.chat-execute-toolbar > div > ul > li.action-item.monaco-dropdown-with-primary > div.action-container.menu-entry > a'
-    CHAT_CONTAINER_XPATH = '//*[@id="workbench.panel.chat"]/div/div/div[2]/div[1]/div/div/div[2]/div[2]/div[2]/div[2]/div'
+    # Seletor para todos os elementos de resposta (o último com data-last-element é o que interessa)
+    CHAT_RESPONSE_SELECTOR = 'div[data-last-element]'
     # --------------------
 
     debug_url = get_debug_url(TARGET_URL)
@@ -48,7 +54,7 @@ def main():
         enable_input(client)
         
         print("Buscando o campo de texto (textarea)...")
-        node_id, frame_id = find_first_element(client, 'textarea')
+        node_id, frame_id = find_last_element(client, 'textarea')
         if not node_id:
             print('Textarea não encontrado.')
             return
@@ -79,12 +85,14 @@ def main():
         click(client, center_x, center_y)
         print("Botão de enviar clicado.")
 
-        # 4. Monitorar o chat para capturar a resposta
-        final_response = monitor_chat_response(client, CHAT_CONTAINER_XPATH)
-
-        print("\n--- RESPOSTA FINAL CAPTURADA ---")
-        print(final_response)
-        print("----------------------------------")
+        while True:
+            # 4. Monitorar o chat para capturar e streamear a resposta em tempo real
+            print("\n--- RESPOSTA DO CHAT ---")
+            stream_chat_response(client, CHAT_RESPONSE_SELECTOR)
+            print("-" * 20)
+            print("Fim da mensagem.")
+            print("-" * 20)
+            input("Pressione Enter para continuar ou Ctrl+C para sair...")
 
         print('\nProcesso concluído com sucesso!')
 
