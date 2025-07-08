@@ -1,14 +1,34 @@
 import time
+from typing import Optional, Tuple, List
+
+# Cache global para evitar re-busca de elementos
+_element_cache = {}
+_cache_max_size = 50
+
+def _cleanup_cache():
+    """Limpa cache quando fica muito grande para evitar memory leak."""
+    global _element_cache
+    if len(_element_cache) > _cache_max_size:
+        # Remove metade das entradas mais antigas
+        keys_to_remove = list(_element_cache.keys())[:_cache_max_size // 2]
+        for key in keys_to_remove:
+            del _element_cache[key]
+        print(f"🧹 Cache DOM limpo ({len(keys_to_remove)} entradas removidas)")
 
 def enable_dom(client):
-    """Habilita o domínio DOM no DevTools."""
-    client.send('DOM.enable')
+    """Habilita o domínio DOM no DevTools com retry."""
+    response = client.send('DOM.enable')
+    if not response:
+        raise Exception("Falha ao habilitar domínio DOM")
+    return response
 
 
 def get_document(client):
-    """Retorna o nodo raiz do documento."""
-    res = client.send('DOM.getDocument', {'depth': -1})
-    return res.get('result', {}).get('root', {})
+    """Retorna o nodo raiz do documento com retry."""
+    response = client.send('DOM.getDocument', {'depth': -1})
+    if not response or 'result' not in response:
+        raise Exception("Falha ao obter documento")
+    return response.get('result', {}).get('root', {})
 
 
 def query_selector(client, root_node_id, selector):
@@ -23,24 +43,25 @@ def get_box_model(client, node_id):
     return res.get('result', {}).get('model')
 
 
-def get_document_with_retries(client, frame_id, retries=10, delay=0.5):
+def get_document_with_retries(client, frame_id, retries=5, delay=1.0):
     """
-    Tenta obter o documento raiz de um frame, com várias tentativas.
-    Isso lida com problemas de timing onde o frame ainda não está pronto.
+    Tenta obter o documento raiz de um frame, com retry robusto.
+    Reduzido para 5 tentativas para evitar loops longos.
     """
     for i in range(retries):
         try:
-            doc_res = client.send('DOM.getDocument', {'frameId': frame_id, 'depth': -1})
-            if 'result' in doc_res and 'root' in doc_res['result']:
-                print(f"  Documento para o frame {frame_id} obtido na tentativa {i+1}.")
-                return doc_res['result']['root']
+            response = client.send('DOM.getDocument', {'frameId': frame_id, 'depth': -1})
+            if response and 'result' in response and 'root' in response['result']:
+                print(f"  ✅ Documento para frame {frame_id} obtido (tentativa {i+1})")
+                return response['result']['root']
         except Exception as e:
-            print(f"  Tentativa {i+1} falhou para o frame {frame_id}: {e}")
+            print(f"  ❌ Tentativa {i+1} falhou para frame {frame_id}: {e}")
         
-        print(f"  Aguardando {delay}s antes de tentar novamente...")
-        time.sleep(delay)
+        if i < retries - 1:  # Não aguarda na última tentativa
+            print(f"  ⏳ Aguardando {delay}s...")
+            time.sleep(delay)
     
-    print(f"  Não foi possível obter o documento para o frame {frame_id} após {retries} tentativas.")
+    print(f"  💥 Falha definitiva ao obter documento para frame {frame_id}")
     return None
 
 def find_nodes_by_tag_recursive(client, node, tag_name, found_nodes):
@@ -110,6 +131,7 @@ def find_first_element(client, tag_name):
     Retorna (node_id, frame_id) ou (None, None).
     """
     elements = find_elements_in_frames(client, tag_name)
+    print(elements)
     if elements:
         return elements[0]
     return None, None
@@ -126,46 +148,79 @@ def find_last_element(client, tag_name):
 
 def find_element_by_selector(client, selector):
     """
-    Encontra o primeiro elemento que corresponde ao seletor CSS, 
-    procurando em todos os frames.
-    Retorna (node_id, frame_id) ou (None, None).
+    Encontra elemento por seletor CSS com cache e melhor gerenciamento de recursos.
     """
-    client.send('DOM.enable')
-    client.send('Page.enable')
+    global _element_cache
+    
+    # Verifica cache primeiro
+    cache_key = f"selector:{selector}"
+    if cache_key in _element_cache:
+        cached_result = _element_cache[cache_key]
+        # Verifica se o elemento ainda existe
+        try:
+            response = client.send('DOM.describeNode', {'nodeId': cached_result[0]})
+            if response and 'result' in response:
+                return cached_result
+        except:
+            # Remove do cache se não existe mais
+            del _element_cache[cache_key]
+    
+    try:
+        response = client.send('DOM.enable')
+        if not response:
+            return None, None
+            
+        response = client.send('Page.enable')
+        if not response:
+            return None, None
 
-    frame_tree_res = client.send('Page.getFrameTree')
-    frame_tree = frame_tree_res.get('result', {}).get('frameTree', {})
+        frame_tree_res = client.send('Page.getFrameTree')
+        if not frame_tree_res or 'result' not in frame_tree_res:
+            return None, None
+            
+        frame_tree = frame_tree_res.get('result', {}).get('frameTree', {})
 
-    frames_to_process = []
-    def collect_frames(frame_node):
-        frames_to_process.append(frame_node['frame'])
-        if 'childFrames' in frame_node:
-            for child_frame in frame_node['childFrames']:
-                collect_frames(child_frame)
-    collect_frames(frame_tree)
+        frames_to_process = []
+        def collect_frames(frame_node):
+            frames_to_process.append(frame_node['frame'])
+            if 'childFrames' in frame_node:
+                for child_frame in frame_node['childFrames']:
+                    collect_frames(child_frame)
+        collect_frames(frame_tree)
 
-    print(f"Iniciando busca pelo seletor '...{selector[-50:]}' em {len(frames_to_process)} frames...")
+        print(f"🔍 Buscando seletor em {len(frames_to_process)} frames...")
 
-    for frame_info in frames_to_process:
-        frame_id = frame_info['id']
-        document_root = get_document_with_retries(client, frame_id)
+        for frame_info in frames_to_process[:3]:  # Limita a 3 frames para evitar loops longos
+            frame_id = frame_info['id']
+            document_root = get_document_with_retries(client, frame_id, retries=3)
+            
+            if document_root:
+                try:
+                    response = client.send('DOM.querySelector', {
+                        'nodeId': document_root['nodeId'],
+                        'selector': selector
+                    })
+                    
+                    if response and 'result' in response:
+                        node_id = response.get('result', {}).get('nodeId')
+                        if node_id:
+                            result = (node_id, frame_id)
+                            # Adiciona ao cache
+                            _element_cache[cache_key] = result
+                            _cleanup_cache()
+                            print(f"✅ Seletor encontrado no frame {frame_id}")
+                            return result
+                            
+                except Exception as e:
+                    print(f"⚠️ Erro ao executar querySelector no frame {frame_id}: {e}")
+                    continue
+
+        print("❌ Seletor não encontrado em nenhum frame")
+        return None, None
         
-        if document_root:
-            try:
-                res = client.send('DOM.querySelector', {
-                    'nodeId': document_root['nodeId'],
-                    'selector': selector
-                })
-                
-                node_id = res.get('result', {}).get('nodeId')
-                if node_id:
-                    print(f"SUCESSO: Seletor encontrado no frame {frame_id}")
-                    return node_id, frame_id
-            except Exception as e:
-                print(f"  Erro ao executar querySelector no frame {frame_id}: {e}")
-
-    print("AVISO: Seletor não encontrado em nenhum frame.")
-    return None, None
+    except Exception as e:
+        print(f"💥 Erro crítico na busca por seletor: {e}")
+        return None, None
 
 def find_element_by_xpath_in_frames(client, xpath_expression):
     """
