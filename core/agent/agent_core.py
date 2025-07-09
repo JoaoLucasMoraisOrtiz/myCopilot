@@ -1,12 +1,16 @@
 import json
 import re
-import os
 import pickle
 from pathlib import Path
 from analyzers.java_analyzer import build_symbol_table
-from core.agent.callInfoFromDict import get_source_code_for_member, read_full_file
 from core.llm.llm_client import LLMClient
-from core.agent.agent_prompts import SYSTEM_PROMPT_TEMPLATE, USER_START_PROMPT, TOOL_OBSERVATION_PROMPT
+from core.agent.agent_prompts import (
+    SYSTEM_PROMPT_TEMPLATE, 
+    USER_START_PROMPT, 
+    TOOL_OBSERVATION_PROMPT,
+    SYSTEM_PROMPT_NEW_MODE_TEMPLATE,
+    USER_START_PROMPT_NEW_MODE
+)
 
 class AgentToolbox:
     def __init__(self, project_path):
@@ -198,17 +202,25 @@ class Agent:
         self.project_path = project_path
         self.continue_mode = continue_mode
         self.state_file = Path("agent_state.pkl")
+        self.mode = "edit"  # Modo padrão, será definido no run()
         
         if continue_mode:
             self.load_previous_state()
         else:
             self.initialize_new_conversation()
 
-    def initialize_new_conversation(self):
-        """Inicializa uma nova conversa do zero"""
+    def initialize_new_conversation(self, mode="edit"):
+        """Inicializa uma nova conversa do zero com prompts específicos do modo"""
+        if mode == "new":
+            system_prompt = SYSTEM_PROMPT_NEW_MODE_TEMPLATE.format(user_goal=self.user_goal)
+            user_start_prompt = USER_START_PROMPT_NEW_MODE
+        else:
+            system_prompt = SYSTEM_PROMPT_TEMPLATE.format(user_goal=self.user_goal)
+            user_start_prompt = USER_START_PROMPT
+        
         self.messages = [
-            {"role": "system", "content": SYSTEM_PROMPT_TEMPLATE.format(user_goal=self.user_goal)},
-            {"role": "user", "content": USER_START_PROMPT}
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_start_prompt}
         ]
         self.turn_count = 0
         
@@ -263,7 +275,9 @@ class Agent:
 
     def call_llm(self, current_turn=0):
         # Limita o tamanho total do contexto para evitar overflow
-        prompt = '\n'.join([f"{msg['role'].upper()}: {msg['content']}" for msg in self.messages])
+        # Apenas as últimas 4 mensagens são enviadas para evitar duplicação de contexto
+        last_messages = self.messages[-4:]
+        prompt = '\n'.join([f"{msg['role'].upper()}: {msg['content']}" for msg in last_messages])
         
         # Adiciona pressão temporal baseada no número de turnos
         pressure_message = self._get_pressure_message(current_turn)
@@ -275,32 +289,32 @@ class Agent:
         original_length = len(prompt)
         
         # Limite mais flexível para permitir respostas grandes
-        if original_length > 25000:  # 25k chars max (aumentado de 20k)
-            print(f"⚠️ Prompt muito longo ({original_length} chars), aplicando compressão inteligente...")
+        # if original_length > 25000:  # 25k chars max (aumentado de 20k)
+        #     print(f"⚠️ Prompt muito longo ({original_length} chars), aplicando compressão inteligente...")
             
-            # Estratégia de compressão progressiva
-            if original_length > 40000:  # Muito crítico
-                # Mantém system prompt + últimas 2 mensagens
-                truncated_messages = [self.messages[0]]
-                truncated_messages.extend(self.messages[-2:])
-                print("🔄 Compressão crítica: mantendo apenas 2 últimas mensagens")
-            elif original_length > 30000:  # Crítico
-                # Mantém system prompt + últimas 3 mensagens
-                truncated_messages = [self.messages[0]]
-                truncated_messages.extend(self.messages[-3:])
-                print("🔄 Compressão alta: mantendo 3 últimas mensagens")
-            else:  # Moderado
-                # Mantém system prompt + últimas 4 mensagens
-                truncated_messages = [self.messages[0]]
-                truncated_messages.extend(self.messages[-4:])
-                print("🔄 Compressão moderada: mantendo 4 últimas mensagens")
+        #     # Estratégia de compressão progressiva
+        #     if original_length > 40000:  # Muito crítico
+        #         # Mantém system prompt + últimas 2 mensagens
+        #         truncated_messages = [self.messages[0]]
+        #         truncated_messages.extend(self.messages[-2:])
+        #         print("🔄 Compressão crítica: mantendo apenas 2 últimas mensagens")
+        #     elif original_length > 30000:  # Crítico
+        #         # Mantém system prompt + últimas 3 mensagens
+        #         truncated_messages = [self.messages[0]]
+        #         truncated_messages.extend(self.messages[-3:])
+        #         print("🔄 Compressão alta: mantendo 3 últimas mensagens")
+        #     else:  # Moderado
+        #         # Mantém system prompt + últimas 4 mensagens
+        #         truncated_messages = [self.messages[0]]
+        #         truncated_messages.extend(self.messages[-4:])
+        #         print("🔄 Compressão moderada: mantendo 4 últimas mensagens")
             
             # Reconstrói o prompt
-            prompt = '\n'.join([f"{msg['role'].upper()}: {msg['content']}" for msg in truncated_messages])
-            if pressure_message:
-                prompt += f"\n\nUSER: {pressure_message}"
-                
-            print(f"✅ Prompt comprimido: {len(prompt)} chars (redução de {original_length - len(prompt)} chars)")
+        #prompt ='' #'\n'.join([f"{msg['role'].upper()}: {msg['content']}" for msg in truncated_messages])
+        if pressure_message:
+            prompt += f"\n\nUSER: {pressure_message}"
+            
+        print(f"✅ Prompt comprimido: {len(prompt)} chars (redução de {original_length - len(prompt)} chars)")
         
         # Log do tamanho final do prompt
         print(f"📊 Enviando prompt de {len(prompt)} chars para o LLM...")
@@ -333,7 +347,8 @@ class Agent:
 
     def _extract_json_from_response(self, response_text):
         """Extrai JSON da resposta do LLM com parsing robusto"""
-        import re, json
+        import re
+        import json
         
         # Estratégia 1: JSON em bloco markdown ```json ... ```
         json_block_match = re.search(r'```json\s*\n(.*?)\n```', response_text, re.DOTALL)
@@ -350,42 +365,71 @@ class Agent:
             except json.JSONDecodeError as e:
                 print(f"❌ Erro ao decodificar JSON do bloco: {e}")
         
-        # Estratégia 2: JSON iniciando com {"command"
+        # Estratégia 2: JSON iniciando com {"command" - melhorada para strings longas
         start = response_text.find('{"command"')
         if start != -1:
             substr = response_text[start:]
-            # Detecta JSON balanceado
+            # Detecta JSON balanceado considerando escape de quotes
             stack = []
+            in_string = False
+            escaped = False
+            
             for i, ch in enumerate(substr):
-                if ch == '{': 
-                    stack.append('{')
-                elif ch == '}':
-                    if stack: 
-                        stack.pop()
-                    if not stack:
-                        candidate = substr[:i+1]
-                        # Limpa elipses e vírgulas antes de fechar
-                        candidate = candidate.replace('...', '')
-                        candidate = re.sub(r',\s*}', '}', candidate)
-                        candidate = re.sub(r',\s*]', ']', candidate)
-                        print(f"🔍 JSON encontrado (balanceado): {candidate[:100]}...")
-                        try:
-                            data = json.loads(candidate)
-                            # Remove parênteses do comando se presente
-                            cmd = data.get('command', '')
-                            if isinstance(cmd, str) and cmd.endswith('()'):
-                                data['command'] = cmd[:-2]
-                            return data
-                        except json.JSONDecodeError as e:
-                            print(f"❌ Erro ao decodificar JSON balanceado: {e}")
-                            break
+                if escaped:
+                    escaped = False
+                    continue
+                    
+                if ch == '\\' and in_string:
+                    escaped = True
+                    continue
+                    
+                if ch == '"' and not escaped:
+                    in_string = not in_string
+                    continue
+                    
+                if not in_string:
+                    if ch == '{': 
+                        stack.append('{')
+                    elif ch == '}':
+                        if stack: 
+                            stack.pop()
+                        if not stack:
+                            candidate = substr[:i+1]
+                            print(f"🔍 JSON encontrado (balanceado): {candidate[:100]}...")
+                            try:
+                                data = json.loads(candidate)
+                                # Remove parênteses do comando se presente
+                                cmd = data.get('command', '')
+                                if isinstance(cmd, str) and cmd.endswith('()'):
+                                    data['command'] = cmd[:-2]
+                                print(f"✅ JSON válido extraído: {data.get('command', 'unknown')}")
+                                return data
+                            except json.JSONDecodeError as e:
+                                print(f"❌ Erro ao decodificar JSON balanceado: {e}")
+                                # Continua procurando outros JSONs possíveis
+                                break
         
-        # Estratégia 3: Busca por padrões mais amplos de JSON
+        # Estratégia 3: Busca por padrões mais amplos de JSON - melhorada
+        # Primeiro tenta encontrar JSONs completos com save_code/create_file
+        save_code_pattern = r'\{\s*"command"\s*:\s*"(save_code|create_file)"\s*,\s*"args"\s*:\s*\[\s*"[^"]+"\s*,\s*"([^"\\]|\\.)*"\s*\]\s*\}'
+        save_match = re.search(save_code_pattern, response_text, re.DOTALL)
+        if save_match:
+            json_str = save_match.group(0)
+            print(f"🔍 JSON save_code encontrado: {json_str[:100]}...")
+            try:
+                data = json.loads(json_str)
+                cmd = data.get('command', '')
+                if isinstance(cmd, str) and cmd.endswith('()'):
+                    data['command'] = cmd[:-2]
+                print(f"✅ JSON save_code válido extraído: {data.get('command', 'unknown')}")
+                return data
+            except json.JSONDecodeError as e:
+                print(f"❌ Erro ao decodificar JSON save_code: {e}")
+        
+        # Padrões para outros comandos
         json_patterns = [
-            # Padrão específico para comandos conhecidos
-            r'\{\s*"command"\s*:\s*"(list_classes|get_class_metadata|get_code|read_file|continue_reading|final_answer)"[^}]*\}',
-            # Padrão com args array
-            r'\{\s*"command"\s*:\s*"[^"]+"\s*,\s*"args"\s*:\s*\[[^\]]*\]\s*\}',
+            # Padrão específico para comandos conhecidos simples
+            r'\{\s*"command"\s*:\s*"(list_classes|get_class_metadata|get_code|read_file|continue_reading|final_answer)"\s*(?:,\s*"args"\s*:\s*\[[^\]]*\])?\s*\}',
             # Padrão simples sem args
             r'\{\s*"command"\s*:\s*"[^"]+"\s*\}',
         ]
@@ -393,10 +437,6 @@ class Agent:
         for pattern in json_patterns:
             for match in re.finditer(pattern, response_text):
                 json_str = match.group(0)
-                # Limpa placeholders
-                json_str = json_str.replace('...', '')
-                json_str = re.sub(r',\s*}', '}', json_str)
-                json_str = re.sub(r',\s*]', ']', json_str)
                 print(f"🔍 JSON encontrado (padrão): {json_str[:100]}...")
                 try:
                     data = json.loads(json_str)
@@ -405,11 +445,99 @@ class Agent:
                     if isinstance(cmd, str) and cmd.endswith('()'):
                         data['command'] = cmd[:-2]
                     # Verifica se é um comando válido
-                    if cmd in ["list_classes", "get_class_metadata", "get_code", "read_file", "continue_reading", "final_answer"]:
+                    if cmd in ["list_classes", "get_class_metadata", "get_code", "read_file", "continue_reading", "save_code", "create_file", "final_answer"]:
+                        print(f"✅ JSON padrão válido extraído: {cmd}")
                         return data
                 except json.JSONDecodeError as e:
                     print(f"❌ Erro ao decodificar JSON por padrão: {e}")
                     continue
+        
+        # Estratégia 3.5: Extração manual para save_code com strings longas
+        # Quando regex falha, tenta extrair manualmente
+        save_start = response_text.find('{"command": "save_code"')
+        if save_start != -1:
+            print("🔍 Tentando extração manual de save_code...")
+            try:
+                # Encontra o início dos args
+                args_start = response_text.find('"args":', save_start)
+                if args_start != -1:
+                    # Encontra o array args
+                    bracket_start = response_text.find('[', args_start)
+                    if bracket_start != -1:
+                        # Extrai filename (primeiro argumento)
+                        first_quote = response_text.find('"', bracket_start)
+                        second_quote = response_text.find('"', first_quote + 1)
+                        filename = response_text[first_quote + 1:second_quote]
+                        
+                        # Encontra o início do código (segundo argumento)
+                        comma_pos = response_text.find(',', second_quote)
+                        code_start_quote = response_text.find('"', comma_pos)
+                        
+                        # Busca pela aspas de fechamento do código
+                        # Precisa considerar escapes
+                        code_content_start = code_start_quote + 1
+                        pos = code_content_start
+                        while pos < len(response_text):
+                            if response_text[pos] == '"' and response_text[pos-1] != '\\':
+                                # Verifica se é realmente o fim (próximo char deve ser ] ou ,)
+                                next_meaningful = pos + 1
+                                while next_meaningful < len(response_text) and response_text[next_meaningful].isspace():
+                                    next_meaningful += 1
+                                if next_meaningful < len(response_text) and response_text[next_meaningful] in ']},':
+                                    # Encontrou o fim do código
+                                    code_content = response_text[code_content_start:pos]
+                                    # Decodifica escapes básicos
+                                    code_content = code_content.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+                                    
+                                    result = {
+                                        "command": "save_code",
+                                        "args": [filename, code_content]
+                                    }
+                                    print(f"✅ Save_code extraído manualmente: {filename}")
+                                    return result
+                            pos += 1
+                            
+            except Exception as e:
+                print(f"❌ Erro na extração manual: {e}")
+        
+        # Estratégia 3.6: Extração manual para create_file
+        create_start = response_text.find('{"command": "create_file"')
+        if create_start != -1:
+            print("🔍 Tentando extração manual de create_file...")
+            try:
+                # Mesmo processo que save_code
+                args_start = response_text.find('"args":', create_start)
+                if args_start != -1:
+                    bracket_start = response_text.find('[', args_start)
+                    if bracket_start != -1:
+                        first_quote = response_text.find('"', bracket_start)
+                        second_quote = response_text.find('"', first_quote + 1)
+                        filename = response_text[first_quote + 1:second_quote]
+                        
+                        comma_pos = response_text.find(',', second_quote)
+                        code_start_quote = response_text.find('"', comma_pos)
+                        
+                        code_content_start = code_start_quote + 1
+                        pos = code_content_start
+                        while pos < len(response_text):
+                            if response_text[pos] == '"' and response_text[pos-1] != '\\':
+                                next_meaningful = pos + 1
+                                while next_meaningful < len(response_text) and response_text[next_meaningful].isspace():
+                                    next_meaningful += 1
+                                if next_meaningful < len(response_text) and response_text[next_meaningful] in ']},':
+                                    code_content = response_text[code_content_start:pos]
+                                    code_content = code_content.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
+                                    
+                                    result = {
+                                        "command": "create_file",
+                                        "args": [filename, code_content]
+                                    }
+                                    print(f"✅ Create_file extraído manualmente: {filename}")
+                                    return result
+                            pos += 1
+                            
+            except Exception as e:
+                print(f"❌ Erro na extração manual de create_file: {e}")
         
         # Estratégia 4: Busca por comandos diretos sem JSON formal
         command_patterns = [
@@ -418,13 +546,17 @@ class Agent:
             (r'get_code\("([^"]+)"\)', "get_code", None),
             (r'read_file\("([^"]+)"\)', "read_file", None),
             (r'continue_reading\("([^"]+)"\)', "continue_reading", None),
+            (r'save_code\("([^"]+)",\s*"([^"]+)"\)', "save_code", "dual_args"),
+            (r'create_file\("([^"]+)",\s*"([^"]+)"\)', "create_file", "dual_args"),
             (r'final_answer\("([^"]+)"\)', "final_answer", None),
         ]
         
         for pattern, command, default_args in command_patterns:
             match = re.search(pattern, response_text)
             if match:
-                if default_args is None:
+                if default_args == "dual_args":
+                    args = [match.group(1), match.group(2)]
+                elif default_args is None:
                     args = [match.group(1)]
                 else:
                     args = default_args
@@ -492,7 +624,7 @@ class Agent:
             r'classe\s+([A-Za-z_][A-Za-z0-9_]*)',
             r'([A-Za-z_][A-Za-z0-9_]*)\s*class',
             r'([A-Za-z_][A-Za-z0-9_]*Service)\b',
-            r'([A-Za-z_][A-Za-z0-9_]*Manager)\b',
+            r'([A-Za-z_][A-Zaelz0-9_]*Manager)\b',
             r'([A-Za-z_][A-Za-z0-9_]*Controller)\b',
             r'([A-Za-z_][A-Za-z0-9_]*Repository)\b',
             r'([A-Za-z_][A-Za-z0-9_]*Entity)\b',
@@ -764,6 +896,33 @@ class Agent:
                 print(f"📋 continue_reading('{abstraction_id}', page={page}) retornou {len(result)} chars")
                 return result
                 
+            elif command == "save_code" or command == "create_file":
+                if len(args) < 2:
+                    return "❌ Erro: save_code/create_file requer [filename, code_content] como argumentos"
+                
+                filename = args[0]
+                code_content = args[1]
+                
+                # Salva o arquivo no diretório do projeto
+                output_dir = Path(self.project_path)
+                file_path = output_dir / filename
+                file_path.parent.mkdir(parents=True, exist_ok=True)
+                
+                try:
+                    with open(file_path, "w", encoding="utf-8") as f:
+                        f.write(code_content)
+                    
+                    # Atualiza o symbol_table após salvar
+                    self.toolbox.symbol_table = build_symbol_table(str(output_dir))
+                    
+                    result = f"✅ Arquivo '{filename}' salvo com sucesso em {file_path}"
+                    print(f"💾 {result}")
+                    return result
+                except Exception as e:
+                    error_msg = f"❌ Erro ao salvar arquivo '{filename}': {e}"
+                    print(error_msg)
+                    return error_msg
+                
             elif command == "final_answer":
                 answer = args[0] if args else "[final_answer sem conteúdo]"
                 print(f"🎯 final_answer retornando resposta com {len(answer)} chars")
@@ -775,7 +934,7 @@ class Agent:
                 return error_msg
                 
             else:
-                error_msg = f"Erro: Comando '{command}' desconhecido. Comandos disponíveis: list_classes, get_class_metadata, get_code, read_file, continue_reading, final_answer"
+                error_msg = f"Erro: Comando '{command}' desconhecido. Comandos disponíveis: list_classes, get_class_metadata, get_code, read_file, continue_reading, save_code, create_file, final_answer"
                 print(f"❌ {error_msg}")
                 return error_msg
                 
@@ -786,11 +945,27 @@ class Agent:
             traceback.print_exc()
             return error_msg
 
-    def run(self):
-        """Executa o loop principal do agente"""
+    def run(self, mode="edit"):
+        """Executa o loop principal do agente, agora com suporte a modos 'edit' e 'new'"""
         print("INFO: Agente iniciado. Objetivo:", self.user_goal)
+        print(f"[MODO: {mode.upper()}]")
         print("="*50)
         
+        self.mode = mode
+        
+        # Se não está em modo continue, reinicializa com o prompt correto
+        if not self.continue_mode:
+            self.initialize_new_conversation(mode)
+
+        if mode == "edit":
+            return self._run_edit_mode()
+        elif mode == "new":
+            return self._run_new_mode()
+        else:
+            print(f"❌ Modo '{mode}' não reconhecido. Use 'edit' ou 'new'.")
+            return None
+
+    def _run_edit_mode(self):
         # Determina o turno inicial baseado no modo
         if self.continue_mode:
             start_turn = self.turn_count
@@ -798,12 +973,12 @@ class Agent:
         else:
             start_turn = 0
             self.turn_count = 0
-            print("🆕 Iniciando nova análise")
-        
+            print("🆕 Iniciando nova análise (edit mode)")
+
         for turn in range(start_turn, self.max_turns):
             self.turn_count = turn + 1
             print(f"\n--- TURNO {self.turn_count} ---")
-            
+
             # Se for modo continue e for o primeiro turno, não envia novo prompt
             # Em vez disso, processa a última mensagem do assistente
             if self.continue_mode and turn == start_turn and self.messages:
@@ -811,37 +986,86 @@ class Agent:
                 if last_message["role"] == "assistant":
                     print("🔄 Processando última resposta do assistente...")
                     llm_response_content = last_message["content"]
-                    # Remove a última mensagem do assistente para reprocessá-la
                     self.messages.pop()
                 else:
-                    # Se a última mensagem não for do assistente, continua normalmente
                     llm_response_content = self.call_llm(current_turn=self.turn_count)
                     self.messages.append({"role": "assistant", "content": llm_response_content})
             else:
-                # Funcionamento normal
                 llm_response_content = self.call_llm(current_turn=self.turn_count)
                 self.messages.append({"role": "assistant", "content": llm_response_content})
-            
-            # Salva estado após cada turno
+
             self.save_current_state()
-            
-            # Processa a ação
+
             action_json = self.parse_action_from_response(llm_response_content)
             if action_json.get("command") == "final_answer":
                 print("\n" + "="*20 + " RESPOSTA FINAL DO AGENTE " + "="*20)
                 print(action_json["args"][0])
-                # Limpa o estado após conclusão bem-sucedida
                 if self.state_file.exists():
                     self.state_file.unlink()
                 return action_json["args"][0]
-            
-            # Executa ferramenta e adiciona observação
+
             execution_result = self.execute_tool(action_json)
             tool_observation_prompt = TOOL_OBSERVATION_PROMPT.format(execution_result=execution_result)
             self.messages.append({"role": "user", "content": tool_observation_prompt})
-            
-            # Salva estado após observação da ferramenta
+
             self.save_current_state()
-            
+
         print("INFO: Agente atingiu o número máximo de turnos.")
+        return None
+
+    def _run_new_mode(self):
+        """
+        Novo modo: criação de projeto do zero.
+        - Cria diretório de output se não existir
+        - Salva cada novo código gerado pelo LLM
+        - Atualiza symbol_table a cada iteração
+        """
+        output_dir = Path(self.project_path)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        print(f"🆕 Criando projeto do zero em: {output_dir}")
+
+        if self.continue_mode:
+            start_turn = self.turn_count
+            print(f"🔄 Continuando do turno {start_turn + 1}")
+        else:
+            start_turn = 0
+            self.turn_count = 0
+            print("🆕 Iniciando nova análise (new mode)")
+
+        for turn in range(start_turn, self.max_turns):
+            self.turn_count = turn + 1
+            print(f"\n--- TURNO {self.turn_count} ---")
+
+            if self.continue_mode and turn == start_turn and self.messages:
+                last_message = self.messages[-1]
+                if last_message["role"] == "assistant":
+                    print("🔄 Processando última resposta do assistente...")
+                    llm_response_content = last_message["content"]
+                    self.messages.pop()
+                else:
+                    llm_response_content = self.call_llm(current_turn=self.turn_count)
+                    self.messages.append({"role": "assistant", "content": llm_response_content})
+            else:
+                llm_response_content = self.call_llm(current_turn=self.turn_count)
+                self.messages.append({"role": "assistant", "content": llm_response_content})
+
+            self.save_current_state()
+
+            # Processa a ação normalmente
+            action_json = self.parse_action_from_response(llm_response_content)
+
+            if action_json.get("command") == "final_answer":
+                print("\n" + "="*20 + " RESPOSTA FINAL DO AGENTE " + "="*20)
+                print(action_json["args"][0])
+                if self.state_file.exists():
+                    self.state_file.unlink()
+                return action_json["args"][0]
+
+            execution_result = self.execute_tool(action_json)
+            tool_observation_prompt = TOOL_OBSERVATION_PROMPT.format(execution_result=execution_result)
+            self.messages.append({"role": "user", "content": tool_observation_prompt})
+
+            self.save_current_state()
+
+        print("INFO: Agente atingiu o número máximo de turnos (new mode).")
         return None

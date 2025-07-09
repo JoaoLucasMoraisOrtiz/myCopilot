@@ -124,10 +124,10 @@ class LLMClient:
             'expression': expression_count,
             'returnByValue': True
         })
-        prev_count = 0
-        if resp and resp.get('result', {}).get('result'):
-            prev_count = resp.get('result', {}).get('result', {}).get('value', 0)
-        
+        # prev_count = 0
+        # if resp and resp.get('result', {}).get('result'):
+        #     prev_count = resp.get('result', {}).get('result', {}).get('value', 0)
+        time.sleep(0.5)
         # Encontrar e clicar no botão de enviar com retry
         for attempt in range(self.max_retries):
             try:
@@ -155,74 +155,137 @@ class LLMClient:
                 else:
                     raise Exception("Falha ao clicar no botão após múltiplas tentativas")
         
-        # Aguardar nova resposta com timeout otimizado para respostas grandes
-        max_wait_time = 25  # Aumenta timeout para 120 segundos para respostas grandes
-        wait_interval = 5
-        total_waited = 0
         
-        print("⏳ Aguardando resposta do LLM...")
-        response_detected = False
-        
-        while total_waited < max_wait_time:
-            #time.sleep(wait_interval)
-            total_waited += wait_interval
-            
-            try:
-                resp = self.client.send('Runtime.evaluate', {
-                    'expression': expression_count,
-                    'returnByValue': True
-                })
-                
-                curr_count = 0
-                if resp and resp.get('result', {}).get('result'):
-                    curr_count = resp.get('result', {}).get('result', {}).get('value', 0)
-                
-                print(f"📊 Aguardando... {total_waited}s (elementos: {curr_count})")
-                
-                if curr_count != prev_count:
-                    print("✅ Nova resposta detectada!")
-                    response_detected = True
-                    
-                    # Para respostas grandes, aguarda mais tempo para completar
-                    if total_waited < 30:  # Se detectou rapidamente, aguarda mais
-                        print("⏳ Aguardando resposta completar...")
-                        time.sleep(3)  # Aguarda mais para respostas grandes
-                        total_waited += 10
-                    else:
-                        time.sleep(3)  # Aguarda normal
-                        total_waited += 5
-                    break
-                    
-            except Exception as e:
-                print(f"⚠️ Erro ao verificar resposta: {e}")
-                
-        if not response_detected:
-            print(f"⏰ Timeout de {max_wait_time}s atingido. Tentando capturar resposta atual...")
-        
-        # Capturar resposta
-        return self._capture_response()
+        return self._capture_response(prompt_text)
     
-    def _capture_response(self):
+    def _wait_for_interface_ready(self, sent_text=None):
+        """
+        Aguarda a interface do chat ficar pronta para nova interação.
+        Se sent_text for fornecido, verifica se o texto sumiu da textarea (indica envio bem-sucedido).
+        """
+        if sent_text:
+            print("⏳ Aguardando confirmação de envio (verificando se texto sumiu da textarea)...")
+        else:
+            print("⏳ Aguardando interface ficar pronta...")
+            
+        max_wait_attempts = 30  # 30 segundos máximo
+        
+        for attempt in range(max_wait_attempts):
+            try:
+                # Se temos o texto enviado, verifica se sumiu da textarea
+                if sent_text:
+                    textarea_value_check = """
+                        (() => {
+                            const textarea = document.querySelector('textarea');
+                            return textarea ? textarea.value.trim() : '';
+                        })()
+                    """
+                    
+                    textarea_resp = self.client.send('Runtime.evaluate', {
+                        'expression': textarea_value_check,
+                        'returnByValue': True
+                    })
+                    
+                    current_value = textarea_resp.get('result', {}).get('result', {}).get('value', '')
+                    
+                    # Se o texto sumiu ou é diferente, significa que foi enviado
+                    if not current_value or current_value != sent_text.strip():
+                        print("✅ Texto sumiu da textarea - mensagem enviada com sucesso!")
+                        time.sleep(1)  # Pequena pausa para estabilização
+                        return True
+                    
+                    print(f"⏳ Aguardando texto sumir... (tentativa {attempt + 1}/30)")
+                
+                else:
+                    # Verificações tradicionais se não temos texto para comparar
+                    # Verifica se textarea está habilitado e interativo
+                    textarea_check = """
+                        (() => {
+                            const textarea = document.querySelector('textarea');
+                            if (!textarea) return false;
+                            return !textarea.disabled && !textarea.readonly && 
+                                   textarea.style.pointerEvents !== 'none';
+                        })()
+                    """
+                    
+                    # Verifica se botão de enviar está habilitado
+                    button_check = f"""
+                        (() => {{
+                            const button = document.querySelector('{self.send_button_selector}');
+                            if (!button) return false;
+                            return !button.disabled && button.style.pointerEvents !== 'none';
+                        }})()
+                    """
+                    
+                    # Verifica se não há indicadores de carregamento
+                    loading_check = """
+                        (() => {
+                            const loadingIndicators = document.querySelectorAll('[data-testid*="loading"], .loading, [class*="loading"]');
+                            return loadingIndicators.length === 0;
+                        })()
+                    """
+                    
+                    # Executa todas as verificações
+                    textarea_resp = self.client.send('Runtime.evaluate', {
+                        'expression': textarea_check,
+                        'returnByValue': True
+                    })
+                    
+                    button_resp = self.client.send('Runtime.evaluate', {
+                        'expression': button_check,
+                        'returnByValue': True
+                    })
+                    
+                    loading_resp = self.client.send('Runtime.evaluate', {
+                        'expression': loading_check,
+                        'returnByValue': True
+                    })
+                    
+                    # Verifica se todas as condições são atendidas
+                    textarea_ready = textarea_resp and textarea_resp.get('result', {}).get('result', {}).get('value', False)
+                    button_ready = button_resp and button_resp.get('result', {}).get('result', {}).get('value', False)
+                    no_loading = loading_resp and loading_resp.get('result', {}).get('result', {}).get('value', False)
+                    
+                    if textarea_ready and button_ready and no_loading:
+                        print("✅ Interface pronta para nova interação!")
+                        time.sleep(1)  # Pequena pausa adicional para garantir estabilidade
+                        return True
+                    
+                    print(f"⏳ Aguardando... (tentativa {attempt + 1}/30) - Textarea: {textarea_ready}, Botão: {button_ready}, Sem loading: {no_loading}")
+                
+                time.sleep(1)
+                
+            except Exception as e:
+                print(f"⚠️ Erro ao verificar interface (tentativa {attempt + 1}): {e}")
+                time.sleep(1)
+        
+        print("⚠️ Timeout: Interface pode não estar completamente pronta, continuando mesmo assim...")
+        return False
+    
+    def _capture_response(self, sent_text=None):
         """Captura a resposta do chat com timeout e melhor tratamento de erros"""
         if not self.client:
             return "❌ Erro: Cliente não conectado."
-            
+        
+        # Espera inteligente: aguarda a interface ficar pronta para nova interação
+        # Se temos o texto enviado, usa isso para confirmar o envio
+        self._wait_for_interface_ready(sent_text)
+        
         response_parts = []
         prev_text = ""
         has_update = False
         max_attempts = 30  # Reduz para 30 tentativas (30 segundos)
         attempt = 0
-        
         print("📥 Capturando resposta do chat...")
-        
+        time.sleep(10)
         while attempt < max_attempts:
             try:
                 expression = f"""
                     (() => {{
                         const elems = document.querySelectorAll('{self.chat_response_selector}');
                         if (!elems || elems.length === 0) return '';
-                        const lastElem = elems[elems.length - 1]; // Pega o último elemento
-                        return lastElem ? (lastElem.getAttribute('aria-label') || lastElem.innerText || '') : '';
+                        const lastElem = elems[elems.length -2]; // Pega o último elemento
+                        return lastElem ? lastElem.getAttribute('aria-label') : '';
                     }})()
                 """
                 
@@ -231,6 +294,8 @@ class LLMClient:
                     'returnByValue': True
                 })
 
+                
+                
                 # Verifica se houve erro na resposta
                 if not resp:
                     print(f"⚠️ Resposta vazia do DevTools (tentativa {attempt + 1})")
@@ -246,15 +311,16 @@ class LLMClient:
                 
                 # Extrai o texto da resposta
                 result = resp.get('result', {})
-                if not result or 'result' not in result:
+
+                if not result or 'result' not in result or result == " Inspecione isso no modo de exibição acessível com Shift+Alt+F2":
                     attempt += 1
                     time.sleep(1)
                     continue
-                    
-                current = result.get('result', {}).get('value', '') or ''
-                
+
+                current = result.get('result', {}).get('result', {}).get('value', '') or ''
+
                 # Remove texto indesejado
-                if 'Inspect this in the accessible view with Shift+Alt+F2' in current:
+                if 'Inspect this in the accessÇible view with Shift+Alt+F2' in current:
                     current = current.replace('Inspect this in the accessible view with Shift+Alt+F2', '').strip()
 
                 if current and current != prev_text:
@@ -269,11 +335,11 @@ class LLMClient:
                     # Aguarda tempo diferente baseado no tamanho da resposta
                     if char_count > 15000:
                         print("⏳ Resposta grande detectada, aguardando estabilização...")
-                        time.sleep(3)
+                        time.sleep(2.5)
                     elif char_count > 5000:
-                        time.sleep(2)
+                        time.sleep(2.5)
                     else:
-                        time.sleep(4)
+                        time.sleep(2.5)
                         
                 elif has_update and current:
                     # Se já temos atualizações e o texto não mudou, provavelmente terminou
@@ -304,8 +370,8 @@ class LLMClient:
             print("⚠️ Nenhuma resposta capturada. Tentando método alternativo...")
             # Método alternativo - captura diretamente o último elemento
             try:
-                alt_expression = f"""
-                    (() => {{
+                alt_expression = """
+                    (() => {
                         // Tenta diferentes seletores para capturar a resposta
                         const selectors = [
                             '[data-last-element]',
@@ -315,32 +381,32 @@ class LLMClient:
                             '.monaco-list-row'
                         ];
                         
-                        for (const selector of selectors) {{
+                        for (const selector of selectors) {
                             const elements = document.querySelectorAll(selector);
-                            if (elements.length > 0) {{
+                            if (elements.length > 0) {
                                 const lastElement = elements[elements.length - 1];
                                 const text = lastElement.innerText || lastElement.textContent || '';
-                                if (text.trim().length > 0) {{
+                                if (text.trim().length > 0) {
                                     return text;
-                                }}
-                            }}
-                        }}
+                                }
+                            }
+                        }
                         
                         // Fallback final - procura por qualquer elemento com texto
                         const chatContainer = document.querySelector('.interactive-session');
-                        if (chatContainer) {{
+                        if (chatContainer) {
                             const allElements = chatContainer.querySelectorAll('*');
-                            for (let i = allElements.length - 1; i >= 0; i--) {{
+                            for (let i = allElements.length - 1; i >= 0; i--) {
                                 const element = allElements[i];
                                 const text = element.innerText || element.textContent || '';
-                                if (text.trim().length > 50) {{ // Só pega textos com pelo menos 50 chars
+                                if (text.trim().length > 50) { // Só pega textos com pelo menos 50 chars
                                     return text;
-                                }}
-                            }}
-                        }}
+                                }
+                            }
+                        }
                         
                         return 'Nenhuma resposta encontrada';
-                    }})()
+                    })()
                 """
                 
                 resp = self.client.send('Runtime.evaluate', {
@@ -361,7 +427,8 @@ class LLMClient:
             final_response = "❌ Erro: Não foi possível capturar a resposta do LLM. Verifique se o Copilot Chat está ativo e funcionando."
         
         print(f"📊 Resposta final: {len(final_response)} caracteres")
-        return final_response
+        print(final_response[-100:])
+        return final_response.replace('Inspecione isso no modo de exibição acessível com Shift+Alt+F2', '')
     
     def close(self):
         """Fecha conexão e libera recursos adequadamente."""
