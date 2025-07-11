@@ -637,7 +637,7 @@ class Agent:
                                     code_content = code_content.replace('\\"', '"').replace('\\n', '\n').replace('\\\\', '\\')
                                     
                                     result = {
-                                        "command": "create_file",
+                                        "command": "save_file",
                                         "args": [filename, code_content]
                                     }
                                     print(f"✅ Create_file extraído manualmente: {filename}")

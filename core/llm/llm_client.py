@@ -16,6 +16,9 @@ class LLMClient:
         self.client = None
         self.send_button_selector = '#workbench\\.panel\\.chat > div > div > div.monaco-scrollable-element > div.split-view-container > div > div > div.pane-body > div.interactive-session > div.interactive-input-part > div.interactive-input-and-side-toolbar > div > div.chat-input-toolbars > div.monaco-toolbar.chat-execute-toolbar > div > ul > li.action-item.monaco-dropdown-with-primary > div.action-container.menu-entry > a'
         self.chat_response_selector = 'div[data-last-element]'
+        with open('config.json', 'r') as f:
+            config = json.load(f)
+            self.waiting_time_for_next_watch_response = config.get('waitingTimeForNextWatchResponse', 10)
         
     def get_debug_url(self) -> Optional[str]:
         """Obtém URL de debug com retry."""
@@ -191,7 +194,6 @@ class LLMClient:
                     # Se o texto sumiu ou é diferente, significa que foi enviado
                     if not current_value or current_value != sent_text.strip():
                         print("✅ Texto sumiu da textarea - mensagem enviada com sucesso!")
-                        time.sleep(1)  # Pequena pausa para estabilização
                         return True
                     
                     print(f"⏳ Aguardando texto sumir... (tentativa {attempt + 1}/30)")
@@ -277,15 +279,20 @@ class LLMClient:
         max_attempts = 30  # Reduz para 30 tentativas (30 segundos)
         attempt = 0
         print("📥 Capturando resposta do chat...")
-        time.sleep(10)
+        time.sleep(8)
         while attempt < max_attempts:
             try:
                 expression = f"""
                     (() => {{
                         const elems = document.querySelectorAll('{self.chat_response_selector}');
-                        if (!elems || elems.length === 0) return '';
-                        const lastElem = elems[elems.length -2]; // Pega o último elemento
-                        return lastElem ? lastElem.getAttribute('aria-label') : '';
+                        let answer = '';
+                        elems.forEach(elem => {{
+                            const ariaLabel = elem.getAttribute('aria-label');
+                            if (ariaLabel && ariaLabel.length > answer.length && !ariaLabel.startsWith("SYSTEM") && !ariaLabel.startsWith("ASSISTANT")) {{
+                                answer = ariaLabel;
+                            }}
+                        }});
+                        return answer;
                     }})()
                 """
                 
@@ -293,7 +300,6 @@ class LLMClient:
                     'expression': expression,
                     'returnByValue': True
                 })
-
                 
                 
                 # Verifica se houve erro na resposta
@@ -310,14 +316,14 @@ class LLMClient:
                     continue
                 
                 # Extrai o texto da resposta
-                result = resp.get('result', {})
+                result = resp.get('result', {}).get('result', {}).get('value', '')
 
-                if not result or 'result' not in result or result == " Inspecione isso no modo de exibição acessível com Shift+Alt+F2":
+                """ if not result or 'result' not in result or result == " Inspecione isso no modo de exibição acessível com Shift+Alt+F2":
                     attempt += 1
                     time.sleep(1)
-                    continue
+                    continue """
 
-                current = result.get('result', {}).get('result', {}).get('value', '') or ''
+                current = result
 
                 # Remove texto indesejado
                 if 'Inspect this in the accessÇible view with Shift+Alt+F2' in current:
@@ -325,7 +331,11 @@ class LLMClient:
 
                 if current and current != prev_text:
                     diff = current[len(prev_text):]
-                    response_parts.append(diff)
+                    response_parts.append(current)
+                    if len(response_parts) > 1:
+                        response_parts.pop(0)
+
+                    print(response_parts)
                     prev_text = current
                     has_update = True
                     
@@ -335,11 +345,11 @@ class LLMClient:
                     # Aguarda tempo diferente baseado no tamanho da resposta
                     if char_count > 15000:
                         print("⏳ Resposta grande detectada, aguardando estabilização...")
-                        time.sleep(2.5)
+                        time.sleep(self.waiting_time_for_next_watch_response)
                     elif char_count > 5000:
-                        time.sleep(2.5)
+                        time.sleep(self.waiting_time_for_next_watch_response)
                     else:
-                        time.sleep(2.5)
+                        time.sleep(self.waiting_time_for_next_watch_response)
                         
                 elif has_update and current:
                     # Se já temos atualizações e o texto não mudou, provavelmente terminou
@@ -366,62 +376,62 @@ class LLMClient:
         
         final_response = ''.join(response_parts)
         
-        if not final_response:
-            print("⚠️ Nenhuma resposta capturada. Tentando método alternativo...")
-            # Método alternativo - captura diretamente o último elemento
-            try:
-                alt_expression = """
-                    (() => {
-                        // Tenta diferentes seletores para capturar a resposta
-                        const selectors = [
-                            '[data-last-element]',
-                            '.interactive-response',
-                            '.chat-response',
-                            '.message',
-                            '.monaco-list-row'
-                        ];
+        # if not final_response:
+        #     print("⚠️ Nenhuma resposta capturada. Tentando método alternativo...")
+        #     # Método alternativo - captura diretamente o último elemento
+        #     try:
+        #         alt_expression = """
+        #             (() => {
+        #                 // Tenta diferentes seletores para capturar a resposta
+        #                 const selectors = [
+        #                     '[data-last-element]',
+        #                     '.interactive-response',
+        #                     '.chat-response',
+        #                     '.message',
+        #                     '.monaco-list-row'
+        #                 ];
                         
-                        for (const selector of selectors) {
-                            const elements = document.querySelectorAll(selector);
-                            if (elements.length > 0) {
-                                const lastElement = elements[elements.length - 1];
-                                const text = lastElement.innerText || lastElement.textContent || '';
-                                if (text.trim().length > 0) {
-                                    return text;
-                                }
-                            }
-                        }
+        #                 for (const selector of selectors) {
+        #                     const elements = document.querySelectorAll(selector);
+        #                     if (elements.length > 0) {
+        #                         const lastElement = elements[elements.length - 1];
+        #                         const text = lastElement.innerText || lastElement.textContent || '';
+        #                         if (text.trim().length > 0) {
+        #                             return text;
+        #                         }
+        #                     }
+        #                 }
                         
-                        // Fallback final - procura por qualquer elemento com texto
-                        const chatContainer = document.querySelector('.interactive-session');
-                        if (chatContainer) {
-                            const allElements = chatContainer.querySelectorAll('*');
-                            for (let i = allElements.length - 1; i >= 0; i--) {
-                                const element = allElements[i];
-                                const text = element.innerText || element.textContent || '';
-                                if (text.trim().length > 50) { // Só pega textos com pelo menos 50 chars
-                                    return text;
-                                }
-                            }
-                        }
+        #                 // Fallback final - procura por qualquer elemento com texto
+        #                 const chatContainer = document.querySelector('.interactive-session');
+        #                 if (chatContainer) {
+        #                     const allElements = chatContainer.querySelectorAll('*');
+        #                     for (let i = allElements.length - 1; i >= 0; i--) {
+        #                         const element = allElements[i];
+        #                         const text = element.innerText || element.textContent || '';
+        #                         if (text.trim().length > 50) { // Só pega textos com pelo menos 50 chars
+        #                             return text;
+        #                         }
+        #                     }
+        #                 }
                         
-                        return 'Nenhuma resposta encontrada';
-                    })()
-                """
+        #                 return 'Nenhuma resposta encontrada';
+        #             })()
+        #         """
                 
-                resp = self.client.send('Runtime.evaluate', {
-                    'expression': alt_expression,
-                    'returnByValue': True
-                })
+        #         resp = self.client.send('Runtime.evaluate', {
+        #             'expression': alt_expression,
+        #             'returnByValue': True
+        #         })
                 
-                if resp and resp.get('result', {}).get('result'):
-                    alt_response = resp.get('result', {}).get('result', {}).get('value', '')
-                    if alt_response:
-                        final_response = alt_response
-                        print("✅ Resposta capturada via método alternativo!")
+        #         if resp and resp.get('result', {}).get('result'):
+        #             alt_response = resp.get('result', {}).get('result', {}).get('value', '')
+        #             if alt_response:
+        #                 final_response = alt_response
+        #                 print("✅ Resposta capturada via método alternativo!")
                 
-            except Exception as e:
-                print(f"❌ Método alternativo também falhou: {e}")
+        #     except Exception as e:
+        #         print(f"❌ Método alternativo também falhou: {e}")
         
         if not final_response:
             final_response = "❌ Erro: Não foi possível capturar a resposta do LLM. Verifique se o Copilot Chat está ativo e funcionando."

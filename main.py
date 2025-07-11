@@ -5,7 +5,7 @@ from core.agent.agent_core import Agent
 
 """ 
 Start chrome with:
-google-chrome --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 --remote-allow-origins=* --user-data-dir=/tmp/chrome_debug_profile --no-first-run --no-default-browser-check --disable-web-security --disable-features=VizDisplayCompositor --disable-dev-shm-usage --no-sandbox https://vscode.dev &
+google-chrome --remote-debugging-port=9222 --remote-debugging-address=127.0.0.1 --remote-allow-origins=* --user-data-dir=/tmp/chrome_debug_profile --no-first-run --no-default-browser-check --disable-web-security --disable-features=VizDisplayCompositor --disable-dev-shm-usage --no-sandbox https://vscode.dev
 
 """
 
@@ -25,6 +25,8 @@ def main():
                        help='Objetivo específico para o agente')
     parser.add_argument('--max-turns', '-t', type=int, default=10,
                        help='Número máximo de turnos (padrão: 10)')
+    parser.add_argument('--llm-type', choices=['vscode', 'gemini', 'gemini_api', 'codestral'], default='vscode',
+                       help='Tipo de LLM a usar: vscode (padrão), gemini (Chrome), gemini_api (Gemini API) ou codestral (Codestral API)')
     
     # Verifica comandos especiais antes do parsing
     if '--clean' in sys.argv:
@@ -84,7 +86,9 @@ def main():
             user_goal=user_goal, 
             project_path=project_path,
             max_turns=args.max_turns,
-            continue_mode=True
+            continue_mode=True,
+            llm_type=args.llm_type,
+            api_key=None  # API key carregada automaticamente do config.json
         )
     else:
         print("🆕 MODO NOVO: Iniciando nova conversa...")
@@ -92,7 +96,9 @@ def main():
             user_goal=user_goal, 
             project_path=project_path,
             max_turns=args.max_turns,
-            continue_mode=False
+            continue_mode=False,
+            llm_type=args.llm_type,
+            api_key=None  # API key carregada automaticamente do config.json
         )
     
     # Executa o agente no modo especificado
