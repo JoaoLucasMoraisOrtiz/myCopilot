@@ -1,9 +1,36 @@
-import subprocess
 import os
-class ACIOrchestrator:
-    # ... (existing methods like __init__, dispatch_command, etc.)
+import shlex
+import subprocess
+from typing import List, Set
 
-    # NEW: The implementation of the testing tool.
+# Assumindo que ShellExecutor existe conforme o seu código
+from devtools.shell_executor import ShellExecutor
+
+class ACIOrchestrator:
+    """
+    Orquestrador otimizado para reduzir o consumo de tokens.
+    Filtra saídas verbosas e resume resultados para fornecer
+    apenas informações relevantes ao LLM.
+    """
+    # Diretórios e padrões a serem ignorados para reduzir o ruído.
+    IGNORED_DIRS: Set[str] = {
+        ".git", "node_modules", "__pycache__", "target", 
+        "build", "dist", ".vscode", ".idea"
+    }
+    # Limite máximo de linhas para saídas de busca para evitar sobrecarga.
+    MAX_OUTPUT_LINES: int = 50
+
+    def __init__(self, shell_executor: ShellExecutor):
+        self.shell_executor = shell_executor
+        self.tools = {
+            "list_files": self._execute_list_files,
+            "search_dir": self._execute_search_dir,
+            "run_test": self._execute_run_test,
+            # Ferramentas que não usam shell podem ser adicionadas aqui
+            # "open_file": self._execute_open_file,
+            # "edit_code": self._execute_edit_code,
+        }
+
     def run_test_in_container(self, test_command: str, container_config: str = "default"):
         """
         Executes a test command in a specified Docker container.
@@ -61,12 +88,20 @@ class ACIOrchestrator:
         except Exception as e:
             return f"An unexpected error occurred while running Docker: {e}"
 
-    # MODIFIED: Update dispatch_command to include the new tool.
-    def dispatch_command(self, command: str, args: list):
-        if command == "run_test_in_container":
-            # Expects args to be [test_command, container_config] or [test_command]
-            return self.run_test_in_container(*args)
-        # ... (your other commands: list_files, edit_code, etc.)
+    def dispatch_command(self, command: str, args: list) -> str:
+        """Despacha um comando para o handler correspondente."""
+        if command not in self.tools:
+            return f"Erro: Comando '{command}' não encontrado."
+        
+        handler = self.tools[command]
+        try:
+            print(f"Orquestrador despachando '{command}' com args: {args}")
+            result = handler(*args)
+            return str(result)
+        except TypeError as e:
+            return f"Erro: Argumentos inválidos para o comando '{command}'. Detalhes: {e}"
+        except Exception as e:
+            return f"Erro inesperado ao executar '{command}': {e}"
 
     def _execute_list_files(self, path: str = ".", recursive: bool = False) -> str:
         """
