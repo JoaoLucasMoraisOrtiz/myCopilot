@@ -159,10 +159,44 @@ class Agent:
                 if new_summary:
                     self.state_manager.update_world_state({"knowledge_summary": new_summary})
 
-                # ... (existing tool execution logic: dispatch command, get result, add observation) ...
+                # Execute the tool
+                command = action_json.get("command") if action_json else None
+                args = action_json.get("args", []) if action_json else []
 
-            # Save state at the end of each turn
-            self.state_manager.save_current_state()
+                if command:
+                    execution_result = self.tool_executor.dispatch_command(command, args)
+                else:
+                    execution_result = "Error: No valid action was generated."
+
+                # --- NEW DEBUG LOOP LOGIC ---
+                is_test_failure = False
+                if command == "run_test_in_container" and "STATUS: FAILED" in execution_result:
+                    is_test_failure = True
+                    # Create a specific observation for debugging
+                    tool_observation = (
+                        "[DEBUGGING REQUIRED]\n"
+                        "---\n"
+                        f"The test command '{args[0]}' failed. Analyze the error output below and propose a fix.\n"
+                        f"{execution_result}\n"
+                        "---"
+                    )
+                else:
+                    # Standard observation
+                    tool_observation = TOOL_OBSERVATION_PROMPT.format(execution_result=execution_result)
+
+                self.state_manager.add_message("user", tool_observation)
+
+                # Update the plan's state based on the outcome
+                if not is_test_failure:
+                    # Mark the current task as complete
+                    plan = world_state.get("plan", [])
+                    current_task_index = next((i for i, task in enumerate(plan) if task == next_task), -1)
+                    if current_task_index != -1:
+                        plan[current_task_index] = plan[current_task_index].replace("[ ]", "[x]", 1)
+                        self.state_manager.update_world_state({"plan": plan})
+
+                # Save state at the end of the turn
+                self.state_manager.save_current_state()
 
     def _handle_final_answer(self, action_json):
         """Processa a resposta final do agente."""

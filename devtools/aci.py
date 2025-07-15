@@ -1,49 +1,72 @@
+import subprocess
 import os
-import shlex
-from typing import List, Set
-
-# Assumindo que ShellExecutor existe conforme o seu código
-from devtools.shell_executor import ShellExecutor
-
 class ACIOrchestrator:
-    """
-    Orquestrador otimizado para reduzir o consumo de tokens.
-    Filtra saídas verbosas e resume resultados para fornecer
-    apenas informações relevantes ao LLM.
-    """
-    # Diretórios e padrões a serem ignorados para reduzir o ruído.
-    IGNORED_DIRS: Set[str] = {
-        ".git", "node_modules", "__pycache__", "target", 
-        "build", "dist", ".vscode", ".idea"
-    }
-    # Limite máximo de linhas para saídas de busca para evitar sobrecarga.
-    MAX_OUTPUT_LINES: int = 50
+    # ... (existing methods like __init__, dispatch_command, etc.)
 
-    def __init__(self, shell_executor: ShellExecutor):
-        self.shell_executor = shell_executor
-        self.tools = {
-            "list_files": self._execute_list_files,
-            "search_dir": self._execute_search_dir,
-            "run_test": self._execute_run_test,
-            # Ferramentas que não usam shell podem ser adicionadas aqui
-            # "open_file": self._execute_open_file,
-            # "edit_code": self._execute_edit_code,
+    # NEW: The implementation of the testing tool.
+    def run_test_in_container(self, test_command: str, container_config: str = "default"):
+        """
+        Executes a test command in a specified Docker container.
+        This assumes pre-built Docker images are available.
+        """
+        print(f"📦 Attempting to run tests with command '{test_command}' using config '{container_config}'...")
+
+        # This is a mapping from a simple config name to a full Docker image name.
+        # In a real setup, these images would be pre-built and stored in a registry.
+        image_map = {
+            "java-maven": "my-registry/java-maven-runner:latest",
+            "nodejs-18": "my-registry/nodejs-18-runner:latest",
+            "python-3.9": "my-registry/python-3.9-runner:latest",
+            "default": "my-registry/generic-runner:latest"
         }
-
-    def dispatch_command(self, command: str, args: list) -> str:
-        """Despacha um comando para o handler correspondente."""
-        if command not in self.tools:
-            return f"Erro: Comando '{command}' não encontrado."
         
-        handler = self.tools[command]
+        docker_image = image_map.get(container_config, image_map["default"])
+
+        # The project directory is mounted into the container's working directory.
+        # This gives the container access to the code.
+        project_path = self.shell_executor.working_directory
+        volume_mount = f"-v {os.path.abspath(project_path)}:/app"
+
+        # Construct the full docker run command.
+        # --rm cleans up the container after it exits.
+        # -w sets the working directory inside the container.
+        docker_command = [
+            "docker", "run", "--rm",
+            volume_mount,
+            "-w", "/app",
+            docker_image,
+            "/bin/sh", "-c", test_command # Execute the command in a shell
+        ]
+
         try:
-            print(f"Orquestrador despachando '{command}' com args: {args}")
-            result = handler(*args)
-            return str(result)
-        except TypeError as e:
-            return f"Erro: Argumentos inválidos para o comando '{command}'. Detalhes: {e}"
+            result = subprocess.run(docker_command, capture_output=True, text=True, timeout=300)
+
+            output = f"--- DOCKER EXECUTION REPORT ---\n"
+            output += f"COMMAND: {' '.join(docker_command)}\n"
+            output += f"EXIT CODE: {result.returncode}\n"
+
+            if result.returncode == 0:
+                output += "STATUS: SUCCESS\n"
+            else:
+                output += "STATUS: FAILED\n"
+
+            output += f"\n--- STDOUT ---\n{result.stdout}\n"
+            if result.stderr:
+                output += f"\n--- STDERR ---\n{result.stderr}\n"
+
+            return output
+
+        except FileNotFoundError:
+            return "Error: 'docker' command not found. Is Docker installed and in the system's PATH?"
         except Exception as e:
-            return f"Erro inesperado ao executar '{command}': {e}"
+            return f"An unexpected error occurred while running Docker: {e}"
+
+    # MODIFIED: Update dispatch_command to include the new tool.
+    def dispatch_command(self, command: str, args: list):
+        if command == "run_test_in_container":
+            # Expects args to be [test_command, container_config] or [test_command]
+            return self.run_test_in_container(*args)
+        # ... (your other commands: list_files, edit_code, etc.)
 
     def _execute_list_files(self, path: str = ".", recursive: bool = False) -> str:
         """
