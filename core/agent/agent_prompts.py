@@ -9,10 +9,7 @@ You are an expert Project Manager and System Architect. Your current task is to 
 
 
 # 2. USER GOAL
-
 "{user_goal}"
-
-
 
 # 3. METHODOLOGY
 
@@ -25,8 +22,6 @@ Your response MUST follow this structure:
 **Thought:**
 
 Reason about the user's request. What are the key components to build or modify? What files will likely be affected? What is the most logical sequence of actions?
-
-
 
 **Critique:**
 
