@@ -95,49 +95,40 @@ class Agent:
         return self._run_main_loop(mode)
     
     def _run_main_loop(self, mode: str):
-        """Loop principal com gerenciamento de 'World State'."""
+        """Main loop with 'World State' management."""
         start_turn = self.state_manager.get_turn_count() if self.continue_mode else 0
         
         for turn in range(start_turn, self.max_turns):
             self.state_manager.increment_turn()
             current_turn = self.state_manager.get_turn_count()
-            print(f"\n--- TURNO {current_turn} ---")
+            print(f"\n--- TURN {current_turn} ---")
 
-            # 1. Obter o histórico de mensagens e o estado atual
+            # 1. Get message history and current state
             messages = self.state_manager.get_messages()
             current_world_state = self.state_manager.get_world_state()
 
-            # 2. Preparar o prompt do sistema para este turno
+            # 2. Prepare the system prompt for this turn
             if current_turn > 1:
-                # Nos turnos seguintes, usamos o prompt de continuação com o world_state
-                if mode == "new":
-                    system_prompt_content = SYSTEM_PROMPT_NEW_MODE_CONTINUATION_TEMPLATE.format(
-                        user_goal=self.user_goal,
-                        world_state=current_world_state
-                    )
-                else:
-                    system_prompt_content = SYSTEM_PROMPT_CONTINUATION_TEMPLATE.format(
-                        user_goal=self.user_goal,
-                        world_state=current_world_state
-                    )
+                system_prompt_content = SYSTEM_PROMPT_CONTINUATION_TEMPLATE.format(
+                    user_goal=self.user_goal,
+                    world_state=current_world_state
+                )
                 messages[0] = {"role": "system", "content": system_prompt_content}
-            # No primeiro turno, o prompt já está formatado com a missão, sem world_state.
             
-            # 3. Chamar o LLM
+            # 3. Call the LLM
             llm_response = self.llm_interface.call_llm(messages, current_turn)
             self.state_manager.add_message("assistant", llm_response)
 
-            # 4. Analisar a resposta para obter ESTADO e AÇÃO
+            # 4. Parse the response to get STATE and ACTION
             new_world_state, action_json = self.response_parser.parse(llm_response)
 
-            # 5. Atualizar o estado do agente
+            # 5. Update the agent's state
             if new_world_state:
                 self.state_manager.update_world_state(new_world_state)
             
-            # Salva o estado completo (incluindo o novo world_state)
             self.state_manager.save_current_state()
 
-            # 6. Executar a ação (o resto do fluxo é igual)
+            # 6. Execute the action
             if action_json and action_json.get("command") == "submit":
                 return self._handle_final_answer(action_json)
             
@@ -147,13 +138,13 @@ class Agent:
             if command:
                 execution_result = self.tool_executor.dispatch_command(command, args)
             else:
-                execution_result = "Erro: Nenhuma ação válida foi gerada. Verifique o formato do JSON e a estrutura da resposta."
+                execution_result = "Error: No valid action was generated."
             
             tool_observation = TOOL_OBSERVATION_PROMPT.format(execution_result=str(execution_result))
             self.state_manager.add_message("user", tool_observation)
             self.state_manager.save_current_state()
         
-        print(f"INFO: Agente atingiu o número máximo de turnos ({mode} mode).")
+        print(f"INFO: Agent reached max turns ({mode} mode).")
         return None
 
     def _handle_final_answer(self, action_json):
