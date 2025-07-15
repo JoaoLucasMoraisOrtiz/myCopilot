@@ -4,10 +4,8 @@ javalang>=0.13.0
 
 # Dependências para integração com LLMs
 gemini-api>=0.1.0
-codestral-api>=0.1.0
 
 # Dependências para manipulação de arquivos e diretórios
-os>=0.1.0
 pathlib>=1.0.0
 json>=2.0.0
 
