@@ -95,66 +95,108 @@ class Agent:
         return self._run_main_loop(mode)
     
     def _run_main_loop(self, mode: str):
-        """Loop principal com gerenciamento de 'World State'."""
+        """Main loop implemented as a state machine driven by world_state['mode']."""
         start_turn = self.state_manager.get_turn_count() if self.continue_mode else 0
-        
+
         for turn in range(start_turn, self.max_turns):
             self.state_manager.increment_turn()
             current_turn = self.state_manager.get_turn_count()
-            print(f"\n--- TURNO {current_turn} ---")
+            print(f"\n--- TURN {current_turn} ---")
 
-            # 1. Obter o histórico de mensagens e o estado atual
-            messages = self.state_manager.get_messages()
-            current_world_state = self.state_manager.get_world_state()
+            world_state = self.state_manager.get_world_state()
+            current_mode = world_state.get("mode", "PLANNING")
+            
+            print(f"AGENT MODE: {current_mode}")
 
-            # 2. Preparar o prompt do sistema para este turno
-            if current_turn > 1:
-                # Nos turnos seguintes, usamos o prompt de continuação com o world_state
-                if mode == "new":
-                    system_prompt_content = SYSTEM_PROMPT_NEW_MODE_CONTINUATION_TEMPLATE.format(
-                        user_goal=self.user_goal,
-                        world_state=current_world_state
+            # =================== STATE MACHINE LOGIC ===================
+            if current_mode == "PLANNING":
+                # --- PLANNING PHASE ---
+                # 1. Format the planning prompt
+                system_prompt = SYSTEM_PROMPT_PLANNING_MODE.format(user_goal=self.user_goal)
+                messages = [{"role": "system", "content": system_prompt}]
+
+                # 2. Get plan from LLM
+                llm_response = self.llm_interface.call_llm(messages, current_turn)
+                self.state_manager.add_message("assistant", llm_response) # Save thought process
+
+                # 3. Parse and handle action
+                _, action_json = self.response_parser.parse(llm_response)
+
+                if action_json and action_json.get("command") == "finalize_plan":
+                    # INTERNAL COMMAND: Plan is complete, switch to CODING mode
+                    plan = action_json["args"]["plan"]
+                    self.state_manager.update_world_state({
+                        "mode": "CODING",
+                        "plan": plan,
+                        "knowledge_summary": f"Plan finalized. Ready to execute {len(plan)} steps."
+                    })
+                    print("✅ Plan finalized. Switching to CODING mode.")
+                elif action_json and action_json.get("command") == "ask_user":
+                    # Handle asking the user a question
+                    print(f"❓ Agent needs clarification: {action_json['args'][0]}")
+                    break
+
+            elif current_mode == "CODING":
+                # --- CODING PHASE ---
+                plan = world_state.get("plan", [])
+                next_task = next((task for task in plan if task.startswith("[ ]")), "All tasks completed.")
+
+                if next_task == "All tasks completed.":
+                    action_json = {"command": "submit", "args": ["All planned tasks have been successfully completed."]}
+                    return self._handle_final_answer(action_json)
+
+                system_prompt = SYSTEM_PROMPT_CONTINUATION_TEMPLATE.format(
+                    user_goal=f"Your current task is: '{next_task}'. The overall goal is: '{self.user_goal}'",
+                    world_state=world_state.get('knowledge_summary', '')
+                )
+                messages = self.state_manager.get_messages()
+                messages[0] = {"role": "system", "content": system_prompt}
+
+                llm_response = self.llm_interface.call_llm(messages, current_turn)
+                self.state_manager.add_message("assistant", llm_response)
+
+                new_summary, action_json = self.response_parser.parse(llm_response)
+                if new_summary:
+                    self.state_manager.update_world_state({"knowledge_summary": new_summary})
+
+                # Execute the tool
+                command = action_json.get("command") if action_json else None
+                args = action_json.get("args", []) if action_json else []
+
+                if command:
+                    execution_result = self.tool_executor.dispatch_command(command, args)
+                else:
+                    execution_result = "Error: No valid action was generated."
+
+                # --- NEW DEBUG LOOP LOGIC ---
+                is_test_failure = False
+                if command == "run_test_in_container" and "STATUS: FAILED" in execution_result:
+                    is_test_failure = True
+                    # Create a specific observation for debugging
+                    tool_observation = (
+                        "[DEBUGGING REQUIRED]\n"
+                        "---\n"
+                        f"The test command '{args[0]}' failed. Analyze the error output below and propose a fix.\n"
+                        f"{execution_result}\n"
+                        "---"
                     )
                 else:
-                    system_prompt_content = SYSTEM_PROMPT_CONTINUATION_TEMPLATE.format(
-                        user_goal=self.user_goal,
-                        world_state=current_world_state
-                    )
-                messages[0] = {"role": "system", "content": system_prompt_content}
-            # No primeiro turno, o prompt já está formatado com a missão, sem world_state.
-            
-            # 3. Chamar o LLM
-            llm_response = self.llm_interface.call_llm(messages, current_turn)
-            self.state_manager.add_message("assistant", llm_response)
+                    # Standard observation
+                    tool_observation = TOOL_OBSERVATION_PROMPT.format(execution_result=execution_result)
 
-            # 4. Analisar a resposta para obter ESTADO e AÇÃO
-            new_world_state, action_json = self.response_parser.parse(llm_response)
+                self.state_manager.add_message("user", tool_observation)
 
-            # 5. Atualizar o estado do agente
-            if new_world_state:
-                self.state_manager.update_world_state(new_world_state)
-            
-            # Salva o estado completo (incluindo o novo world_state)
-            self.state_manager.save_current_state()
+                # Update the plan's state based on the outcome
+                if not is_test_failure:
+                    # Mark the current task as complete
+                    plan = world_state.get("plan", [])
+                    current_task_index = next((i for i, task in enumerate(plan) if task == next_task), -1)
+                    if current_task_index != -1:
+                        plan[current_task_index] = plan[current_task_index].replace("[ ]", "[x]", 1)
+                        self.state_manager.update_world_state({"plan": plan})
 
-            # 6. Executar a ação (o resto do fluxo é igual)
-            if action_json and action_json.get("command") == "submit":
-                return self._handle_final_answer(action_json)
-            
-            command = action_json.get("command") if action_json else None
-            args = action_json.get("args", []) if action_json else []
-
-            if command:
-                execution_result = self.tool_executor.dispatch_command(command, args)
-            else:
-                execution_result = "Erro: Nenhuma ação válida foi gerada. Verifique o formato do JSON e a estrutura da resposta."
-            
-            tool_observation = TOOL_OBSERVATION_PROMPT.format(execution_result=str(execution_result))
-            self.state_manager.add_message("user", tool_observation)
-            self.state_manager.save_current_state()
-        
-        print(f"INFO: Agente atingiu o número máximo de turnos ({mode} mode).")
-        return None
+                # Save state at the end of the turn
+                self.state_manager.save_current_state()
 
     def _handle_final_answer(self, action_json):
         """Processa a resposta final do agente."""
