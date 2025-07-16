@@ -1,0 +1,6 @@
+git+https://github.com/tree-sitter/py-tree-sitter.git
+tree-sitter-languages
+tree-sitter-python
+tree-sitter-java
+tree_sitter_javascript
+requests

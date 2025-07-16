@@ -1,49 +1,62 @@
 import os
-
+import json
+from mistralai import Mistral
 
 class LLMClient:
     """
-    Cliente para interagir com os LLMs (ex: Codestral).
-    Esta é uma implementação de espaço reservado. Em um cenário real, você
-    usaria a API do provedor do LLM.
+    Cliente real para interagir com o Codestral via SDK Mistral.
     """
 
     def __init__(self):
-        # A chave da API seria carregada de variáveis de ambiente ou de um
-        # gerenciador de segredos.
-        self.api_key = os.environ.get("CODESTRAL_API_KEY")
+        self.api_key = os.environ.get("MISTRAL_API_KEY")
         if not self.api_key:
-            print("Aviso: A variável de ambiente CODESTRAL_API_KEY não está definida.")
+            # Tenta carregar do secrets.json
+            try:
+                with open("secrets.json", "r") as f:
+                    secrets = json.load(f)
+                    self.api_key = secrets.get("codestralAPIKey")
+                    print('Chave da API do Codestral/Mistral carregada do secrets.json: {}'.format(self.api_key))
+            except Exception:
+                pass
+        if not self.api_key:
+            raise RuntimeError("Chave da API do Codestral/Mistral não encontrada.")
 
-    def generate_code(self, prompt: str) -> str:
+        self.client = Mistral(api_key=self.api_key)
+        self.model = "codestral-latest"
+
+    def generate_code(self, prompt: str, chat: bool=False, message: list=None) -> str:
         """
-        Chama o LLM para gerar código com base em um prompt.
-        (Implementação de espaço reservado)
-
-        Args:
-            prompt: O prompt para enviar ao LLM.
-
-        Returns:
-            O código gerado pelo LLM.
+        Chama o Codestral para gerar código com base em um prompt via API HTTP (curl-like).
         """
-        print("--- Chamada (simulada) ao LLM ---")
-        print(f"Prompt:\n{prompt}")
+        import requests
+        url = "https://api.mistral.ai/v1/chat/completions"
+        headers = {
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+            "Authorization": f"Bearer {self.api_key}"
+        }
+        if chat and message:
+            # Permite passar mensagens adicionais para contexto de chat
+            messages = message + [{"role": "user", "content": prompt}]
+        else:
+            messages = [{"role": "user", "content": prompt}]
+        payload = {
+            "model": self.model,
+            "messages": messages
+        }
+        response = requests.post(url, headers=headers, json=payload)
+        if response.status_code == 200:
+            data = response.json()
+            # A resposta segue o padrão OpenAI/Mistral
+            return data["choices"][0]["message"]["content"]
+        else:
+            raise RuntimeError(f"Erro na chamada ao Codestral/Mistral: {response.status_code} {response.text}")
+    
 
-        # Simula uma resposta do LLM baseada no prompt
-        if "Implementar: criar uma função que soma dois números" in prompt:
-            if "java" in prompt.lower():
-                return """
-public class Calculator {
-    public int add(int a, int b) {
-        return a + b;
-    }
-}
-"""
-            else:
-                return "def add(a, b):\n    return a + b\n"
 
-        if "Refatore o código" in prompt:
-             return "def some_function():\n    pass\n"
-
-        print("--- Fim da chamada (simulada) ao LLM ---")
-        return "# Código gerado (simulado)\n"
+if __name__ == "__main__":
+    #Exemplo de uso
+    client = LLMClient()
+    prompt = "Escreva uma função Python que some dois números."
+    generated_code = client.generate_code(prompt)
+    print(generated_code)
