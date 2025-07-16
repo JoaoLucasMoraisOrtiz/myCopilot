@@ -55,18 +55,25 @@ class DockerSandbox:
 
         # Permite execução arbitrária, mas define imagens padrão para validação
         image_map = {
-            "python-3.11-pytest": "python:3.11-slim",
+            "python-3.11-pytest": "python-3.11-pytest:latest",
             "python-3.11": "python:3.11-slim",
             "java-17-maven": "maven:3.9-eclipse-temurin-17",
             "java-17": "eclipse-temurin:17-jdk",
         }
-        
 
         if custom_image:
             image_name = custom_image
         else:
-            # Se container_config não for passado, usa python por padrão
             image_name = image_map.get(container_config, "python:3.11-slim")
+
+        # Build automático da imagem customizada se necessário
+        if container_config == "python-3.11-pytest":
+            try:
+                self.client.images.get(image_name)
+            except docker.errors.ImageNotFound:
+                print(f"Imagem customizada '{image_name}' não encontrada. Fazendo build automático...")
+                dockerfile_path = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../docker/python-3.11-pytest'))
+                self.client.images.build(path=dockerfile_path, tag=image_name, rm=True)
 
         try:
             try:
@@ -78,8 +85,7 @@ class DockerSandbox:
                     detach=True,
                     stdout=True,
                     stderr=True,
-                    tty=False,
-                    remove=True
+                    tty=False
                 )
             except docker.errors.ImageNotFound:
                 # Faz pull automático da imagem e tenta novamente
@@ -93,18 +99,20 @@ class DockerSandbox:
                     detach=True,
                     stdout=True,
                     stderr=True,
-                    tty=False,
-                    remove=True
+                    tty=False
                 )
             result = container.wait()
             stdout = container.logs(stdout=True, stderr=False).decode("utf-8")
             stderr = container.logs(stdout=False, stderr=True).decode("utf-8")
+            exit_code = result["StatusCode"]
+            # Remove o container manualmente após coletar logs/status
+            container.remove()
 
             return {
-                "success": result["StatusCode"] == 0,
+                "success": exit_code == 0,
                 "stdout": stdout,
                 "stderr": stderr,
-                "exit_code": result["StatusCode"],
+                "exit_code": exit_code,
             }
         except Exception as e:
             return {"success": False, "error": str(e)}

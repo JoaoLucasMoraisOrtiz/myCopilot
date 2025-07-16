@@ -58,14 +58,18 @@ class ComposerMCTSAgent(BaseAgent):
 
     def _validate_code(self, file_path: str, language: str) -> Dict[str, Any]:
         """Valida o código no sandbox."""
+        import os
         results = []
+        # Caminho relativo ao diretório do projeto (que será montado como /app)
+        project_dir = os.path.dirname(file_path)
+        rel_path = os.path.relpath(file_path, project_dir)
         if language == "python":
             for tool, cmd in [
-                ("pytest", ["pytest", file_path]),
-                ("mypy", ["mypy", file_path]),
-                ("ruff", ["ruff", "check", file_path])
+                ("pytest", ["pytest", rel_path]),
+                ("mypy", ["mypy", rel_path]),
+                ("ruff", ["ruff", "check", rel_path])
             ]:
-                res = self.sandbox.execute(cmd, os.path.dirname(file_path), container_config="python-3.11-pytest")
+                res = self.sandbox.execute(cmd, project_dir, container_config="python-3.11-pytest")
                 results.append(res)
             success = all(r.get("success") for r in results)
             return {"success": success, "results": results}
