@@ -68,9 +68,3 @@ class HaloPlannerAgent(BaseAgent):
             )
         print(f"Task decomposta em {len(subtasks)} subtasks.")
         return subtasks
-
-    def run(self, *args, **kwargs):
-        """
-        O método principal que cada agente implementará para executar sua lógica.
-        """
-        pass

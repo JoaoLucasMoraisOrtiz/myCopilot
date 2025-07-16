@@ -11,20 +11,20 @@ Este documento detalha o plano de ação para evoluir o projeto até 100% de ade
 - [X] Usar AST real para análise de contexto, localização de falhas e decomposição de tarefas.
 
 ## 2. Integração Real com LLM (LLMClient)
-- [ ] Integrar o LLMClient com a API real do Codestral (ou outro LLM).
-- [ ] Implementar autenticação via variável de ambiente ou arquivo seguro.
-- [ ] Tratar respostas reais do LLM, incluindo erros e limites de uso.
+- [X] Integrar o LLMClient com a API real do Codestral (ou outro LLM).
+- [X] Implementar autenticação via variável de ambiente ou arquivo seguro.
+- [-] Tratar respostas reais do LLM, incluindo erros e limites de uso.
 
 ## 3. Execução Real em Sandbox (DockerSandbox)
-- [ ] Garantir que o Docker esteja disponível e documentar dependências.
-- [ ] Implementar execução real de comandos de validação (pytest, mypy, ruff, mvn, checkstyle) dentro do sandbox.
-- [ ] Tratar logs, erros e resultados de execução de forma robusta.
-- [ ] Permitir configuração dinâmica de imagens Docker para Python e Java.
+- [X] Garantir que o Docker esteja disponível e documentar dependências.
+- [X] Implementar execução real de comandos de validação (pytest, mypy, ruff, mvn, checkstyle) dentro do sandbox.
+- [X] Tratar logs, erros e resultados de execução de forma robusta.
+- [X] Permitir configuração dinâmica de imagens Docker para Python e Java.
 
 ## 4. Validação e Linting Real
-- [ ] No `DirectGeneratorAgent`, `ComposerMCTSAgent` e `CriticPolishAgent`, substituir simulações por execuções reais de:
-    - [ ] pytest/mypy/ruff para Python
-    - [ ] mvn/junit/checkstyle para Java
+- [X] No `DirectGeneratorAgent`, `ComposerMCTSAgent` e `CriticPolishAgent`, substituir simulações por execuções reais de:
+    - [X] pytest/mypy/ruff para Python
+    - [X] mvn/junit/checkstyle para Java
 - [ ] Capturar e processar resultados reais dos testes e linting.
 
 ## 5. Implementação Real do MCTS (ComposerMCTSAgent)

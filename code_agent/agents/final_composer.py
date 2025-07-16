@@ -67,9 +67,3 @@ class FinalComposerAgent(BaseAgent):
         # result = self.sandbox.execute(command, project_path, ...)
         # Simulação:
         return {"success": True}
-
-    def run(self, *args, **kwargs):
-        """
-        O método principal que cada agente implementará para executar sua lógica.
-        """
-        pass

@@ -51,9 +51,3 @@ class InferenceAgent(BaseAgent):
         # inserir ou substituir código em vez de sobrescrever o arquivo.
         with open(file_path, "w", encoding="utf-8") as f:
             f.write(code)
-
-    def run(self, *args, **kwargs):
-        """
-        O método principal que cada agente implementará para executar sua lógica.
-        """
-        pass

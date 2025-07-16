@@ -54,23 +54,30 @@ class DirectGeneratorAgent(BaseAgent):
     def _validate_code(self, code: str, language: str) -> Dict[str, Any]:
         """
         Valida o código gerado usando o sandbox.
-        (Implementação de espaço reservado)
         """
-        if language == "python":
-            # Exemplo: command = ["python", "-m", "pytest"]
-            pass
-        elif language == "java":
-            # Exemplo: command = ["mvn", "clean", "install"]
-            pass
-
-        # resultado_execucao = self.sandbox.execute(command, ...)
-        # Esta é uma simulação.
-        if "error" not in code.lower():
-            return {"success": True}
-        return {"success": False, "error": "Simulated validation error"}
-
-    def run(self, *args, **kwargs):
-        """
-        O método principal que cada agente implementará para executar sua lógica.
-        """
-        pass
+        import tempfile
+        import os
+        with tempfile.TemporaryDirectory() as tmpdir:
+            if language == "python":
+                file_path = os.path.join(tmpdir, "main.py")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(code)
+                # Executa pytest, mypy e ruff
+                results = []
+                for cmd in (["pytest", file_path], ["mypy", file_path], ["ruff", "check", file_path]):
+                    res = self.sandbox.execute(cmd, tmpdir, container_config="python-3.11-pytest")
+                    results.append(res)
+                success = all(r.get("success") for r in results)
+                return {"success": success, "results": results}
+            elif language == "java":
+                file_path = os.path.join(tmpdir, "Main.java")
+                with open(file_path, "w", encoding="utf-8") as f:
+                    f.write(code)
+                # Executa mvn test e checkstyle
+                results = []
+                for cmd in (["mvn", "test"], ["mvn", "checkstyle:check"]):
+                    res = self.sandbox.execute(cmd, tmpdir, container_config="java-17-maven")
+                    results.append(res)
+                success = all(r.get("success") for r in results)
+                return {"success": success, "results": results}
+        return {"success": False, "error": "Unsupported language or error during validation."}

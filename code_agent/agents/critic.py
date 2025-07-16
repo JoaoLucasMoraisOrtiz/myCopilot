@@ -3,6 +3,7 @@ from typing import Dict, Any
 from code_agent.agents._base import BaseAgent
 from code_agent.core.sandbox import DockerSandbox
 from code_agent.utils.llm_clients import LLMClient
+import os
 
 
 class CriticPolishAgent(BaseAgent):
@@ -41,7 +42,7 @@ class CriticPolishAgent(BaseAgent):
         print("Polimento concluído.")
 
 
-    def _evaluate_code_quality(self, file_path: str, language: str) -> str:
+    def _evaluate_code_quality(self, file_path: str, language: str) -> Any:
         """
         Executa ferramentas de análise estática (ruff, checkstyle) no sandbox.
         """
@@ -49,16 +50,21 @@ class CriticPolishAgent(BaseAgent):
             return ""
 
         print(f"Avaliando a qualidade do código em {file_path}.")
-        command = []
         if language == "python":
-            command = ["ruff", "check", file_path]
+            cmd = ["ruff", "check", file_path]
+            res = self.sandbox.execute(cmd, os.path.dirname(file_path), container_config="python-3.11-pytest")
+            return [{
+                "tool": "ruff",
+                "success": res.get("success"),
+                "stdout": res.get("stdout"),
+                "stderr": res.get("stderr"),
+                "exit_code": res.get("exit_code")
+            }]
         elif language == "java":
-            # O Checkstyle geralmente é configurado no pom.xml
             command = ["mvn", "checkstyle:check"]
-
-        # result = self.sandbox.execute(command, ...)
-        # Simulação:
-        return "Line 4: Unused import 'os'" # Exemplo de problema
+            result = self.sandbox.execute(command, os.path.dirname(file_path), container_config="java-17-maven")
+            return result.get("stdout", "") + result.get("stderr", "")
+        return ""
 
     def _refactor_code(self, file_path: str, issues: str, language: str):
         """Usa um LLM para refatorar o código e corrigir os problemas."""
@@ -80,9 +86,3 @@ class CriticPolishAgent(BaseAgent):
             f.write(refactored_code)
 
         print("Refatoração aplicada.")
-
-    def run(self, *args, **kwargs):
-        """
-        O método principal que cada agente implementará para executar sua lógica.
-        """
-        pass

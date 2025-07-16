@@ -92,9 +92,3 @@ class ContextualizerAgent(BaseAgent):
                 }
             ]
         return []
-
-    def run(self, *args, **kwargs):
-        """
-        O método principal que cada agente implementará para executar sua lógica.
-        """
-        pass
