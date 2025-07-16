@@ -69,17 +69,33 @@ class DockerSandbox:
             image_name = image_map.get(container_config, "python:3.11-slim")
 
         try:
-            container = self.client.containers.run(
-                image=image_name,
-                command=command,
-                volumes={os.path.abspath(project_path): {"bind": workdir, "mode": "rw"}},
-                working_dir=workdir,
-                detach=True,
-                stdout=True,
-                stderr=True,
-                tty=False,
-                remove=True
-            )
+            try:
+                container = self.client.containers.run(
+                    image=image_name,
+                    command=command,
+                    volumes={os.path.abspath(project_path): {"bind": workdir, "mode": "rw"}},
+                    working_dir=workdir,
+                    detach=True,
+                    stdout=True,
+                    stderr=True,
+                    tty=False,
+                    remove=True
+                )
+            except docker.errors.ImageNotFound:
+                # Faz pull automático da imagem e tenta novamente
+                print(f"Imagem '{image_name}' não encontrada localmente. Fazendo pull...")
+                self.client.images.pull(image_name)
+                container = self.client.containers.run(
+                    image=image_name,
+                    command=command,
+                    volumes={os.path.abspath(project_path): {"bind": workdir, "mode": "rw"}},
+                    working_dir=workdir,
+                    detach=True,
+                    stdout=True,
+                    stderr=True,
+                    tty=False,
+                    remove=True
+                )
             result = container.wait()
             stdout = container.logs(stdout=True, stderr=False).decode("utf-8")
             stderr = container.logs(stdout=False, stderr=True).decode("utf-8")
@@ -90,7 +106,5 @@ class DockerSandbox:
                 "stderr": stderr,
                 "exit_code": result["StatusCode"],
             }
-        except docker.errors.ImageNotFound:
-            return {"success": False, "error": f"A imagem Docker '{image_name}' não foi encontrada. Por favor, puxe-a."}
         except Exception as e:
             return {"success": False, "error": str(e)}
