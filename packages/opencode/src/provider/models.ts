@@ -69,6 +69,12 @@ export namespace ModelsDev {
   export type Provider = z.infer<typeof Provider>
 
   export async function get() {
+    // Se MODELS_DEV_API_JSON estiver setado, usar diretamente sem cache
+    if (Bun.env.MODELS_DEV_API_JSON) {
+      const json = await data()
+      return JSON.parse(json) as Record<string, Provider>
+    }
+    
     refresh()
     const file = Bun.file(filepath)
     const result = await file.json().catch(() => {})

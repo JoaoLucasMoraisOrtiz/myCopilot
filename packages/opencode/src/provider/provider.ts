@@ -78,6 +78,42 @@ export namespace Provider {
         options: hasKey ? {} : { apiKey: "public" },
       }
     },
+    "phi-local": async () => {
+      return {
+        autoload: true,
+        options: {
+          fetch: async (url: string, options: any) => {
+            // Intercept and convert multimodal content to text-only for this server
+            if (options?.body) {
+              try {
+                const body = JSON.parse(options.body)
+                if (body.messages && Array.isArray(body.messages)) {
+                  body.messages = body.messages.map((msg: any) => {
+                    if (Array.isArray(msg.content)) {
+                      // Convert array of text parts to simple string
+                      const allText = msg.content.every((part: any) => 
+                        part.type === "text" || !part.type
+                      )
+                      if (allText) {
+                        msg.content = msg.content
+                          .filter((part: any) => part.type === "text" || part.text)
+                          .map((part: any) => part.text)
+                          .join("\n")
+                      }
+                    }
+                    return msg
+                  })
+                  options.body = JSON.stringify(body)
+                }
+              } catch (e) {
+                // If parsing fails, proceed with original body
+              }
+            }
+            return fetch(url, options)
+          },
+        },
+      }
+    },
     openai: async () => {
       return {
         autoload: false,
@@ -538,7 +574,7 @@ export namespace Provider {
       })
       const s = await state()
       const pkg = model.provider?.npm ?? provider.npm ?? provider.id
-      const options = { ...s.providers[provider.id]?.options }
+      const options = { ...s.providers[provider.id]?.options, ...model.options }
       if (pkg.includes("@ai-sdk/openai-compatible") && options["includeUsage"] === undefined) {
         options["includeUsage"] = true
       }
@@ -562,6 +598,15 @@ export namespace Provider {
           const combined = signals.length > 1 ? AbortSignal.any(signals) : signals[0]
 
           opts.signal = combined
+        }
+
+        // Add keep-alive headers if configured
+        if (options["keepAlive"]) {
+          opts.headers = {
+            ...opts.headers,
+            "Connection": "keep-alive",
+            "Keep-Alive": "timeout=300",
+          }
         }
 
         return fetchFn(input, {
