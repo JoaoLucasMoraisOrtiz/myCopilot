@@ -1,0 +1,6 @@
+Metadata-Version: 2.4
+Name: codingos
+Version: 0.1.0
+Summary: codingOS: MCP supervisor + context scout + ACE memory
+Requires-Python: >=3.10
+Requires-Dist: mcp
